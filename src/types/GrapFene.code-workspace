@@ -1,0 +1,13 @@
+{
+	"folders": [
+		{
+			"name": "GrapFene",
+			"path": "../../../../GrapFene"
+		},
+		{
+			"name": "software-project",
+			"path": "../../.."
+		}
+	],
+	"settings": {}
+}
