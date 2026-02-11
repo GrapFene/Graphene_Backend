@@ -46,6 +46,14 @@ CREATE TABLE IF NOT EXISTS auth_credentials (
     created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
 );
 
+-- Profiles: Stores off-chain metadata linked to identities
+CREATE TABLE IF NOT EXISTS profiles (
+    hash TEXT PRIMARY KEY,
+    did TEXT NOT NULL REFERENCES identities(did) ON DELETE CASCADE,
+    content JSONB NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
+);
+
 -- =============================================================================
 -- Indexes
 -- =============================================================================
@@ -83,3 +91,10 @@ CREATE POLICY "auth_credentials_select_system" ON auth_credentials FOR SELECT US
 CREATE POLICY "auth_credentials_insert_system" ON auth_credentials FOR INSERT WITH CHECK (auth.role() = 'service_role');
 CREATE POLICY "auth_credentials_update_system" ON auth_credentials FOR UPDATE USING (auth.role() = 'service_role');
 CREATE POLICY "auth_credentials_delete_system" ON auth_credentials FOR DELETE USING (auth.role() = 'service_role');
+
+-- Profiles: Public read, authenticated update (via service role checks in code)
+ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "profiles_select_public" ON profiles FOR SELECT USING (true);
+CREATE POLICY "profiles_insert_system" ON profiles FOR INSERT WITH CHECK (auth.role() = 'service_role');
+CREATE POLICY "profiles_update_system" ON profiles FOR UPDATE USING (auth.role() = 'service_role');
+

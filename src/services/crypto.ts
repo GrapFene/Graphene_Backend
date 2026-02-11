@@ -1,8 +1,9 @@
-import * as ed from '@noble/ed25519';
+import { ethers } from 'ethers';
 import { randomBytes } from 'crypto';
 
 /**
- * Verify an Ed25519 signature.
+ * Verify a signature (supports Ethereum/Ethers signatures).
+ * Message is expected to be the raw message (string).
  */
 export async function verifySignature(
     signature: string,
@@ -10,12 +11,34 @@ export async function verifySignature(
     publicKey: string
 ): Promise<boolean> {
     try {
-        const sigBytes = Buffer.from(signature, 'hex');
-        const msgBytes = Buffer.from(message, 'utf8');
-        const pubBytes = Buffer.from(publicKey, 'hex');
+        // Recover address from signature
+        // Note: ethers.verifyMessage automatically handles the prefixing "\x19Ethereum Signed Message:\n"
+        const recoveredAddress = ethers.verifyMessage(message, signature);
 
-        return await ed.verifyAsync(sigBytes, msgBytes, pubBytes);
-    } catch {
+        // Convert input public key to address if it's a full public key
+        // If publicKey is already an address (20 bytes), compare directly
+        // If publicKey is simple public key (uncompressed/compressed), derive address
+
+        let targetAddress = publicKey;
+
+        // If publicKey doesn't look like an address (0x...), try to compute address
+        if (!publicKey.startsWith('0x') || publicKey.length > 42) {
+            try {
+                targetAddress = ethers.computeAddress(publicKey.startsWith('0x') ? publicKey : `0x${publicKey}`);
+            } catch (e) {
+                // If computeAddress fails, assume it's already an address or invalid
+                // If it is just missing 0x prefix for address
+                if (publicKey.length === 40) {
+                    targetAddress = `0x${publicKey}`;
+                }
+            }
+        } else {
+            targetAddress = publicKey;
+        }
+
+        return recoveredAddress.toLowerCase() === targetAddress.toLowerCase();
+    } catch (error) {
+        console.error('Signature verification failed:', error);
         return false;
     }
 }

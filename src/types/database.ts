@@ -49,3 +49,17 @@ export interface AuthCredential {
     mnemonic_hashes: string[];
     created_at: Date;
 }
+
+/**
+ * Profile record from `profiles` table.
+ */
+export interface Profile {
+    hash: string;
+    did: string;
+    content: {
+        displayName?: string;
+        bio?: string;
+        avatarUrl?: string;
+    };
+    created_at: Date;
+}
