@@ -6,13 +6,13 @@ const router = express.Router();
 // POST /communities
 router.post('/', async (req, res) => {
     try {
-        const { did, name, description, rules } = req.body;
+        const { did, name, description, topic, is_private, rules } = req.body;
 
         if (!did || !name) {
             return res.status(400).json({ error: 'DID and name are required' });
         }
 
-        const community = await CommunityService.createCommunity(did, { name, description, rules });
+        const community = await CommunityService.createCommunity(did, { name, description, topic, is_private, rules });
         res.status(201).json(community);
     } catch (error: any) {
         res.status(500).json({ error: error.message });
@@ -25,6 +25,17 @@ router.get('/', async (req, res) => {
         const query = req.query.search as string || '';
         const results = await CommunityService.searchCommunities(query);
         res.json(results);
+    } catch (error: any) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// GET /communities/top
+router.get('/top', async (req, res) => {
+    try {
+        const limit = req.query.limit ? parseInt(req.query.limit as string) : 5;
+        const communities = await CommunityService.getTopCommunities(limit);
+        res.json(communities);
     } catch (error: any) {
         res.status(500).json({ error: error.message });
     }
