@@ -98,3 +98,31 @@ export interface MnemonicLoginVerifyResponse {
     expires_at: Date;
     identity: Pick<Identity, 'did' | 'username'>;
 }
+
+// =============================================================================
+// Profile Types
+// =============================================================================
+
+/** Request body for updating profile */
+export interface ProfileUpdateRequest {
+    did: string;
+    content: {
+        displayName?: string;
+        bio?: string;
+        avatarUrl?: string;
+    };
+    nonce: string; // From auth challenge
+    signed_hash: string; // Signature of the content hash
+}
+
+/** Response upon successful profile update */
+export interface ProfileResponse {
+    hash: string;
+    did: string;
+    content: {
+        displayName?: string;
+        bio?: string;
+        avatarUrl?: string;
+    };
+    updated_at: Date;
+}
