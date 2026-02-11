@@ -1,6 +1,7 @@
 export interface Post {
     id: string;
     author_did: string;
+    title: string;
     content: string;
     subreddit?: string;
     created_at: string;
@@ -8,6 +9,7 @@ export interface Post {
 }
 
 export interface CreatePostDto {
+    title: string;
     content: string;
     subreddit?: string;
 }

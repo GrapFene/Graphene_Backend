@@ -6,6 +6,7 @@ import { voteRouter } from './vote.js';
 import { proposalRouter } from './proposal.js';
 import { blockRouter } from './block.js';
 import profileRouter from './profile.js';
+import { commentRouter } from './comment.js';
 
 export {
     authRouter,
@@ -15,5 +16,6 @@ export {
     voteRouter,
     proposalRouter,
     blockRouter,
-    profileRouter
+    profileRouter,
+    commentRouter
 };

@@ -9,7 +9,8 @@ import {
     voteRouter,
     proposalRouter,
     blockRouter,
-    profileRouter
+    profileRouter,
+    commentRouter
 } from './routes/index.js';
 
 // Validate environment before starting
@@ -30,6 +31,7 @@ app.use('/votes', voteRouter);
 app.use('/proposals', proposalRouter);
 app.use('/blocks', blockRouter);
 app.use('/profile', profileRouter);
+app.use('/comments', commentRouter);
 
 // Health check
 app.get('/health', (_, res) => {

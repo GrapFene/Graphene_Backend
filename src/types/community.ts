@@ -3,6 +3,8 @@ export interface Community {
     name: string;
     description?: string;
     owner_did: string;
+    topic?: string;
+    is_private: boolean;
     rules: CommunityRules;
     created_at: string;
 }
@@ -16,6 +18,8 @@ export interface CommunityRules {
 export interface CreateCommunityDto {
     name: string;
     description?: string;
+    topic?: string;
+    is_private?: boolean;
     rules?: CommunityRules;
 }
 

@@ -4,7 +4,7 @@ import { Community, CreateCommunityDto, CommunityRules, UpdateCommunityRulesDto 
 export class CommunityService {
     private static tableName = 'communities';
 
-    static async createCommunity(did: string, { name, description, rules }: CreateCommunityDto): Promise<Community> {
+    static async createCommunity(did: string, { name, description, topic, is_private, rules }: CreateCommunityDto): Promise<Community> {
         const supabase = getSupabase();
 
         // Check if community exists
@@ -24,6 +24,8 @@ export class CommunityService {
                 owner_did: did,
                 name,
                 description,
+                topic,
+                is_private: is_private ?? false,
                 rules: rules || {}
             })
             .select()
@@ -210,5 +212,32 @@ export class CommunityService {
         }));
 
         return results;
+    }
+    static async getTopCommunities(limit: number = 5): Promise<(Community & { subscriber_count: number })[]> {
+        const supabase = getSupabase();
+
+        // For MVP, we'll fetch all communities and sort by subscriber count in memory
+        // Real app should use a materialized view or better query
+        const { data: communities, error } = await supabase
+            .from(this.tableName)
+            .select('*');
+
+        if (error) {
+            throw new Error(`Failed to fetch top communities: ${error.message}`);
+        }
+
+        const results = await Promise.all(communities.map(async (c: any) => {
+            const { count } = await supabase
+                .from('subscriptions')
+                .select('*', { count: 'exact', head: true })
+                .eq('subreddit', c.name);
+
+            return {
+                ...c,
+                subscriber_count: count || 0
+            };
+        }));
+
+        return results.sort((a, b) => b.subscriber_count - a.subscriber_count).slice(0, limit);
     }
 }
