@@ -3,12 +3,43 @@ import { PostService } from '../services/post.js';
 
 const router = express.Router();
 
+// GET /posts/:id - Get Single Post with Comments
+router.get('/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const viewerDid = req.query.viewerDid as string;
+
+        // Fetch Post
+        const post = await PostService.getPostById(id);
+        if (!post) {
+            return res.status(404).json({ error: 'Post not found' });
+        }
+
+        // Fetch Comments
+        // We can lazy load CommentService or import it.
+        const { CommentService } = await import('../services/comment.js');
+        const comments = await CommentService.getCommentsByPost(id, viewerDid);
+
+        res.json({ ...post, comments });
+    } catch (error: any) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // GET /posts (Global Feed)
 router.get('/', async (req, res) => {
     try {
         const sort = req.query.sort as 'recent' | 'trending' | undefined;
         const viewerDid = req.query.viewerDid as string | undefined;
-        const posts = await PostService.getFeed(sort, viewerDid);
+        const subreddit = req.query.subreddit as string | undefined;
+
+        let posts;
+        if (subreddit) {
+            posts = await PostService.getPostsBySubreddit(subreddit, viewerDid);
+        } else {
+            posts = await PostService.getFeed(sort, viewerDid);
+        }
+
         res.json(posts);
     } catch (error: any) {
         res.status(500).json({ error: error.message });
@@ -27,13 +58,13 @@ router.get('/', async (req, res) => {
 
 router.post('/', async (req, res) => {
     try {
-        const { did, content, subreddit } = req.body;
+        const { did, title, content, subreddit } = req.body;
 
-        if (!did || !content) {
-            return res.status(400).json({ error: 'DID and content are required' });
+        if (!did || !title || !content) {
+            return res.status(400).json({ error: 'DID, title, and content are required' });
         }
 
-        const post = await PostService.createPost(did, { content, subreddit });
+        const post = await PostService.createPost(did, { title, content, subreddit });
         res.status(201).json(post);
     } catch (error: any) {
         res.status(500).json({ error: error.message });
