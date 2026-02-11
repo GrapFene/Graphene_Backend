@@ -1,7 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import { config, validateConfig } from './config/index.js';
-import { authRouter } from './routes/index.js';
+import { authRouter, moderationRouter, federationRouter } from './routes/index.js';
 
 // Validate environment before starting
 validateConfig();
@@ -14,6 +14,9 @@ app.use(express.json());
 
 // Routes
 app.use('/auth', authRouter);
+app.use('/moderation', moderationRouter);
+app.use('/federation', federationRouter);
+
 
 // Health check
 app.get('/health', (_, res) => {

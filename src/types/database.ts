@@ -14,6 +14,7 @@ export interface Identity {
     did: string;
     username: string;
     profile_metadata_hash: string | null;
+    roles: string[];
     created_at: Date;
 }
 

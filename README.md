@@ -48,13 +48,35 @@ npm run dev
 
 ## API Endpoints
 
-| Method | Endpoint          | Description                    |
-|--------|-------------------|--------------------------------|
-| POST   | `/auth/challenge` | Request login challenge        |
-| POST   | `/auth/login`     | Verify signature and get JWT   |
-| GET    | `/health`         | Health check                   |
+### Authentication
+| Method | Endpoint              | Description                    |
+|--------|-----------------------|--------------------------------|
+| POST   | `/auth/challenge`     | Request login challenge        |
+| POST   | `/auth/login`         | Verify signature and get JWT   |
+| POST   | `/auth/register`      | Register new user              |
+| POST   | `/auth/login-init`    | Initiate mnemonic login        |
+| POST   | `/auth/login-verify`  | Verify mnemonic login          |
+
+### Moderation (Requires Moderator Role)
+| Method | Endpoint                        | Description                    |
+|--------|--------------------------------|--------------------------------|
+| POST   | `/moderation/blocks`           | Block an instance              |
+| DELETE | `/moderation/blocks/:url`      | Unblock an instance            |
+| GET    | `/moderation/blocks`           | List all blocked instances     |
+| GET    | `/moderation/logs/rejections`  | View sync rejection logs       |
+
+### Federation
+| Method | Endpoint             | Description                    |
+|--------|---------------------|--------------------------------|
+| POST   | `/federation/sync`  | Initiate federation sync       |
+
+### System
+| Method | Endpoint   | Description  |
+|--------|-----------|--------------|
+| GET    | `/health` | Health check |
 
 ## Authentication Flow
+
 
 1. Client requests challenge: `POST /auth/challenge { did }`
 2. Server returns `{ challenge_id, nonce, expires_at }`
