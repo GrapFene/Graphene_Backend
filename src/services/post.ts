@@ -5,7 +5,7 @@ import { CommunityService } from './community.js';
 export class PostService {
     private static tableName = 'posts';
 
-    static async createPost(did: string, { content, subreddit }: CreatePostDto): Promise<Post> {
+    static async createPost(did: string, { title, content, subreddit }: CreatePostDto): Promise<Post> {
         const supabase = getSupabase();
 
         // Ensure did is provided
@@ -21,6 +21,7 @@ export class PostService {
             .from(this.tableName)
             .insert({
                 author_did: did,
+                title,
                 content,
                 subreddit
             })
@@ -30,6 +31,24 @@ export class PostService {
         if (error) {
             console.error('Database error creating post:', error);
             throw new Error(`Failed to create post: ${error.message}`);
+        }
+
+        return data as Post;
+    }
+
+    static async getPostById(id: string): Promise<Post | null> {
+        const supabase = getSupabase();
+
+        const { data, error } = await supabase
+            .from(this.tableName)
+            .select('*')
+            .eq('id', id)
+            .single();
+
+        if (error) {
+            // Check for not found error code if needed, but for now simple check
+            if (error.code === 'PGRST116') return null;
+            throw new Error(`Failed to fetch post: ${error.message}`);
         }
 
         return data as Post;
@@ -85,5 +104,32 @@ export class PostService {
     // Kept for backward compatibility if needed, aliased to getFeed
     static async getPosts(): Promise<Post[]> {
         return this.getFeed('recent');
+    }
+
+    static async getPostsBySubreddit(subredditName: string, viewerDid?: string): Promise<any[]> {
+        const supabase = getSupabase();
+
+        let blockedCommunities: string[] = [];
+        if (viewerDid) {
+            const { BlockService } = await import('./block.js');
+            blockedCommunities = await BlockService.getBlockedCommunities(viewerDid);
+
+            // If this subreddit is blocked by the viewer, return empty array
+            if (blockedCommunities.includes(subredditName)) {
+                return [];
+            }
+        }
+
+        const { data: posts, error } = await supabase
+            .from(this.tableName)
+            .select('*')
+            .eq('subreddit', subredditName)
+            .order('created_at', { ascending: false });
+
+        if (error) {
+            throw new Error(`Failed to fetch posts for subreddit: ${error.message}`);
+        }
+
+        return posts || [];
     }
 }
