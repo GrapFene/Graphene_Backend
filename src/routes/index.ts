@@ -5,5 +5,15 @@ import { communityRouter } from './community.js';
 import { voteRouter } from './vote.js';
 import { proposalRouter } from './proposal.js';
 import { blockRouter } from './block.js';
+import profileRouter from './profile.js';
 
-export { authRouter, postRouter, subscriptionRouter, communityRouter, voteRouter, proposalRouter, blockRouter };
+export {
+    authRouter,
+    postRouter,
+    subscriptionRouter,
+    communityRouter,
+    voteRouter,
+    proposalRouter,
+    blockRouter,
+    profileRouter
+};

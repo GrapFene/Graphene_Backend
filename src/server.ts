@@ -1,7 +1,16 @@
 import express from 'express';
 import cors from 'cors';
 import { config, validateConfig } from './config/index.js';
-import { authRouter, postRouter, subscriptionRouter, communityRouter, voteRouter, proposalRouter, blockRouter } from './routes/index.js';
+import {
+    authRouter,
+    postRouter,
+    subscriptionRouter,
+    communityRouter,
+    voteRouter,
+    proposalRouter,
+    blockRouter,
+    profileRouter
+} from './routes/index.js';
 
 // Validate environment before starting
 validateConfig();
@@ -20,6 +29,7 @@ app.use('/communities', communityRouter);
 app.use('/votes', voteRouter);
 app.use('/proposals', proposalRouter);
 app.use('/blocks', blockRouter);
+app.use('/profile', profileRouter);
 
 // Health check
 app.get('/health', (_, res) => {
