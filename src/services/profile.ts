@@ -1,5 +1,6 @@
 import { getSupabase } from './supabase.js';
 import { verifySignature } from './crypto.js';
+import { getAuthCredentials } from './auth.js';
 import type {
     ApiResult,
     ProfileUpdateRequest,
@@ -59,25 +60,53 @@ export async function updateProfile(
         };
     }
 
-    // 3. Verify Signature
+    // 3. Verify Signature OR Mnemonic
     // Message signed should be the Hash of Content + Nonce (or just Hash if simple)
-    // To prevent replay, we should check nonce or timestamp, but for simplicity here:
-    // We assume the user signs the HASH of content. 
-    // Wait, the request has `signed_hash`. 
-    // Let's assume the user signs the hash string.
-
     const contentHash = hashContent(content);
-
-    // We need to verify that signed_hash corresponds to contentHash
-    // Actually, `signed_hash` IS the signature.
-    // The message being signed is `contentHash`.
-
     let isValid = false;
-    for (const key of keys) {
-        // Try to verify signature against the content hash
-        if (await verifySignature(signed_hash, contentHash, key.public_key)) {
-            isValid = true;
-            break;
+
+    // A. Try Cryptographic Signature
+    console.log(`[PROFILE] Verifying signature for DID: ${did}`);
+    console.log(`[PROFILE] Signed Hash (Signature): ${signed_hash?.substring(0, 20)}... (Length: ${signed_hash?.length})`);
+
+    if (keys && keys.length > 0) {
+        for (const key of keys) {
+            const isSigValid = await verifySignature(signed_hash, contentHash, key.public_key);
+            console.log(`[PROFILE] Key ${key.public_key.substring(0, 10)}... verification result: ${isSigValid}`);
+            if (isSigValid) {
+                isValid = true;
+                break;
+            }
+        }
+    }
+
+    if (!isValid) {
+        console.log('[PROFILE] Signature verification failed. Trying mnemonic fallback...');
+    }
+
+    // B. Try Mnemonic Verification (if signature failed or keys missing/not used)
+    if (!isValid && request.word_hashes && request.indices && request.indices.length === 3) {
+        console.log('[PROFILE] Attempting Mnemonic Verification...');
+        const creds = await getAuthCredentials(did);
+        if (creds) {
+            let mnemonicValid = true;
+            for (let i = 0; i < 3; i++) {
+                const idx = request.indices[i];
+                // Debug log
+                // console.log(`[PROFILE] Checking word ${i} (index ${idx})`);
+
+                if (idx < 0 || idx >= 12 || creds.mnemonic_hashes[idx] !== request.word_hashes[i]) {
+                    console.log(`[PROFILE] Mnemonic mismatch at index ${idx}`);
+                    mnemonicValid = false;
+                    break;
+                }
+            }
+            if (mnemonicValid) {
+                console.log('[PROFILE] Mnemonic verification SUCCESS');
+                isValid = true;
+            }
+        } else {
+            console.log('[PROFILE] No credentials found for DID');
         }
     }
 
@@ -100,6 +129,7 @@ export async function updateProfile(
         .single();
 
     if (profileError) {
+        console.error('[PROFILE] DB Error during upsert:', profileError);
         return {
             success: false,
             error: { code: 'DB_ERROR', message: profileError.message }

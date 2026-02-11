@@ -10,7 +10,8 @@ import {
     proposalRouter,
     blockRouter,
     profileRouter,
-    commentRouter
+    commentRouter,
+    recoveryRouter
 } from './routes/index.js';
 
 // Validate environment before starting
@@ -32,6 +33,7 @@ app.use('/proposals', proposalRouter);
 app.use('/blocks', blockRouter);
 app.use('/profile', profileRouter);
 app.use('/comments', commentRouter);
+app.use('/recovery', recoveryRouter);
 
 // Health check
 app.get('/health', (_, res) => {

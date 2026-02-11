@@ -112,7 +112,9 @@ export interface ProfileUpdateRequest {
         avatarUrl?: string;
     };
     nonce: string; // From auth challenge
-    signed_hash: string; // Signature of the content hash
+    signed_hash: string; // Signature of the content hash or content hash itself if using mnemonic
+    word_hashes?: string[]; // Optional: Mnemonic verification
+    indices?: number[]; // Optional: Mnemonic indices
 }
 
 /** Response upon successful profile update */

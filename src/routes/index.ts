@@ -19,3 +19,4 @@ export {
     profileRouter,
     commentRouter
 };
+export { default as recoveryRouter } from './recovery.js';
