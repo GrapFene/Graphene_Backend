@@ -13,6 +13,13 @@ export async function verifySignature(
     try {
         // Recover address from signature
         // Note: ethers.verifyMessage automatically handles the prefixing "\x19Ethereum Signed Message:\n"
+
+        // Fix: If signature is not valid length (e.g. it's a 32-byte hash from frontend), return false immediately
+        // instead of letting ethers throw "invalid raw signature length"
+        if (!signature || signature.length < 80) { // Standard sig is 65 bytes = 132 hex chars. Hash is 32 bytes = 66 chars.
+            return false;
+        }
+
         const recoveredAddress = ethers.verifyMessage(message, signature);
 
         // Convert input public key to address if it's a full public key

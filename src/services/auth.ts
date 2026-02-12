@@ -52,7 +52,7 @@ async function getAuthorizableKeys(did: string): Promise<AccountKey[]> {
     return data as AccountKey[];
 }
 
-async function getIdentity(did: string): Promise<Identity | null> {
+export async function getIdentity(did: string): Promise<Identity | null> {
     const { data, error } = await getSupabase()
         .from('identities')
         .select('*')
@@ -241,7 +241,7 @@ async function getIdentityByUsername(username: string): Promise<Identity | null>
 /**
  * Get auth credentials by DID.
  */
-async function getAuthCredentials(did: string): Promise<AuthCredential | null> {
+export async function getAuthCredentials(did: string): Promise<AuthCredential | null> {
     const { data, error } = await getSupabase()
         .from('auth_credentials')
         .select('*')

@@ -98,3 +98,59 @@ CREATE POLICY "profiles_select_public" ON profiles FOR SELECT USING (true);
 CREATE POLICY "profiles_insert_system" ON profiles FOR INSERT WITH CHECK (auth.role() = 'service_role');
 CREATE POLICY "profiles_update_system" ON profiles FOR UPDATE USING (auth.role() = 'service_role');
 
+
+-- =============================================================================
+-- Social Recovery Tables
+-- =============================================================================
+
+-- Guardians: Users who are trusted to approve recovery
+CREATE TABLE IF NOT EXISTS guardians (
+    did TEXT NOT NULL REFERENCES identities(did) ON DELETE CASCADE,
+    guardian_did TEXT NOT NULL REFERENCES identities(did) ON DELETE CASCADE,
+    nickname TEXT, -- Optional nickname for the guardian
+    created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
+    PRIMARY KEY (did, guardian_did)
+);
+
+-- Recovery Requests: Active attempts to recover an account
+CREATE TABLE IF NOT EXISTS recovery_requests (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    did TEXT NOT NULL REFERENCES identities(did) ON DELETE CASCADE,
+    new_password_hash TEXT NOT NULL,
+    new_salt TEXT NOT NULL,
+    new_mnemonic_hashes TEXT[] NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending', -- 'pending', 'completed', 'expired'
+    created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
+    expires_at TIMESTAMPTZ DEFAULT (NOW() + INTERVAL '24 hours') NOT NULL
+);
+
+-- Recovery Approvals: Votes cast by guardians
+CREATE TABLE IF NOT EXISTS recovery_approvals (
+    request_id UUID NOT NULL REFERENCES recovery_requests(id) ON DELETE CASCADE,
+    guardian_did TEXT NOT NULL REFERENCES identities(did) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
+    PRIMARY KEY (request_id, guardian_did)
+);
+
+-- Indexes
+CREATE INDEX IF NOT EXISTS idx_guardians_did ON guardians(did);
+CREATE INDEX IF NOT EXISTS idx_recovery_requests_did ON recovery_requests(did);
+CREATE INDEX IF NOT EXISTS idx_recovery_approvals_request_id ON recovery_approvals(request_id);
+
+-- RLS Policies
+ALTER TABLE guardians ENABLE ROW LEVEL SECURITY;
+ALTER TABLE recovery_requests ENABLE ROW LEVEL SECURITY;
+ALTER TABLE recovery_approvals ENABLE ROW LEVEL SECURITY;
+
+-- Allow public read so users can check if they are guardians, etc.
+-- Writes are restricted to service role (backend only)
+CREATE POLICY "guardians_select_public" ON guardians FOR SELECT USING (true);
+CREATE POLICY "guardians_insert_system" ON guardians FOR INSERT WITH CHECK (auth.role() = 'service_role');
+CREATE POLICY "guardians_delete_system" ON guardians FOR DELETE USING (auth.role() = 'service_role');
+
+CREATE POLICY "recovery_request_select_public" ON recovery_requests FOR SELECT USING (true);
+CREATE POLICY "recovery_request_insert_system" ON recovery_requests FOR INSERT WITH CHECK (auth.role() = 'service_role');
+CREATE POLICY "recovery_request_update_system" ON recovery_requests FOR UPDATE USING (auth.role() = 'service_role');
+
+CREATE POLICY "recovery_approval_select_public" ON recovery_approvals FOR SELECT USING (true);
+CREATE POLICY "recovery_approval_insert_system" ON recovery_approvals FOR INSERT WITH CHECK (auth.role() = 'service_role');

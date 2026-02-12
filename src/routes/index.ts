@@ -23,3 +23,4 @@ export {
     moderationRouter,
     federationRouter
 };
+export { default as recoveryRouter } from './recovery.js';

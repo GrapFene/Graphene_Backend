@@ -12,7 +12,8 @@ import {
     profileRouter,
     commentRouter,
     moderationRouter,
-    federationRouter
+    federationRouter,
+    recoveryRouter,
 } from './routes/index.js';
 
 // Validate environment before starting
@@ -36,6 +37,7 @@ app.use('/profile', profileRouter);
 app.use('/comments', commentRouter);
 app.use('/moderation', moderationRouter);
 app.use('/federation', federationRouter);
+app.use('/recovery', recoveryRouter);
 
 // Health check
 app.get('/health', (_, res) => {
