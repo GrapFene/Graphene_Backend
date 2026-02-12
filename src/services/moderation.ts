@@ -15,7 +15,7 @@ export async function hasModeratorRole(did: string): Promise<boolean> {
         .from('identities')
         .select('roles')
         .eq('did', did)
-        .single();
+        .maybeSingle();
 
     if (error || !identity) {
         return false;
@@ -34,17 +34,15 @@ export async function blockInstance(
     moderatorDid: string
 ): Promise<BlockedInstance> {
     const supabase = getSupabase();
-
-    // Normalize instance URL (remove trailing slash)
     const normalizedUrl = instanceUrl.replace(/\/$/, '');
 
     // Check if already blocked
     const { data: existing } = await supabase
         .from('blocked_instances')
-        .select('*')
+        .select('id')
         .eq('instance_url', normalizedUrl)
         .eq('is_active', true)
-        .single();
+        .maybeSingle();
 
     if (existing) {
         throw new Error('Instance is already blocked');
@@ -60,11 +58,11 @@ export async function blockInstance(
             is_active: true
         })
         .select()
-        .single();
+        .maybeSingle();
 
-    if (error) {
+    if (error || !data) {
         console.error('Error blocking instance:', error);
-        throw new Error('Failed to block instance');
+        throw new Error(`Failed to block instance: ${error?.message || 'No data returned'}`);
     }
 
     return data as BlockedInstance;
@@ -78,8 +76,6 @@ export async function unblockInstance(
     moderatorDid: string
 ): Promise<void> {
     const supabase = getSupabase();
-
-    // Normalize instance URL
     const normalizedUrl = instanceUrl.replace(/\/$/, '');
 
     const { error } = await supabase
@@ -90,7 +86,7 @@ export async function unblockInstance(
 
     if (error) {
         console.error('Error unblocking instance:', error);
-        throw new Error('Failed to unblock instance');
+        throw new Error(`Failed to unblock instance: ${error.message}`);
     }
 }
 
@@ -99,8 +95,6 @@ export async function unblockInstance(
  */
 export async function isInstanceBlocked(instanceUrl: string): Promise<boolean> {
     const supabase = getSupabase();
-
-    // Normalize instance URL
     const normalizedUrl = instanceUrl.replace(/\/$/, '');
 
     const { data, error } = await supabase
@@ -108,7 +102,7 @@ export async function isInstanceBlocked(instanceUrl: string): Promise<boolean> {
         .select('id')
         .eq('instance_url', normalizedUrl)
         .eq('is_active', true)
-        .single();
+        .maybeSingle();
 
     return !error && !!data;
 }
@@ -127,7 +121,7 @@ export async function getBlockedInstances(): Promise<BlockedInstance[]> {
 
     if (error) {
         console.error('Error fetching blocked instances:', error);
-        throw new Error('Failed to fetch blocked instances');
+        throw new Error(`Failed to fetch blocked instances: ${error.message}`);
     }
 
     return (data || []) as BlockedInstance[];
@@ -153,7 +147,6 @@ export async function logSyncRejection(
 
     if (error) {
         console.error('Error logging sync rejection:', error);
-        // Don't throw - logging failure shouldn't break the rejection
     }
 }
 
@@ -173,8 +166,9 @@ export async function getSyncRejectionLogs(
 
     if (error) {
         console.error('Error fetching sync rejection logs:', error);
-        throw new Error('Failed to fetch rejection logs');
+        throw new Error(`Failed to fetch rejection logs: ${error.message}`);
     }
 
     return (data || []) as SyncRejectionLog[];
 }
+
