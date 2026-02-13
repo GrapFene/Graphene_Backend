@@ -4,6 +4,8 @@
 
 import type { BlockedInstance } from './moderation.js';
 
+import type { SyncRetryEntry } from './retry.js';
+
 /**
  * Request body for blocking an instance.
  */
@@ -33,6 +35,15 @@ export interface UnblockInstanceRequest {
  */
 export interface ListBlockedInstancesResponse {
     instances: BlockedInstance[];
+    total: number;
+}
+
+/**
+ * Response for sync queue monitoring.
+ */
+export interface SyncQueueResponse {
+    success: boolean;
+    queue: SyncRetryEntry[];
     total: number;
 }
 

@@ -14,7 +14,8 @@ import { getRetryQueue } from '../services/retry.js';
 import type {
     BlockInstanceRequest,
     BlockInstanceResponse,
-    ListBlockedInstancesResponse
+    ListBlockedInstancesResponse,
+    SyncQueueResponse
 } from '../types/moderation-api.js';
 
 const router = Router();
@@ -134,11 +135,14 @@ router.get('/sync-queue', requireAuth, requireModerator, async (req: Request, re
     try {
         const status = req.query.status as any;
         const queue = await getRetryQueue(status);
-        res.status(200).json({
+
+        const response: SyncQueueResponse = {
             success: true,
             queue,
             total: queue.length
-        });
+        };
+
+        res.status(200).json(response);
     } catch (error: any) {
         console.error('Get retry queue error:', error);
         res.status(500).json({
