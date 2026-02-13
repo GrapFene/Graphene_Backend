@@ -3,6 +3,7 @@
 // =============================================================================
 
 import { getSupabase } from './supabase.js';
+import { sendFederationSync } from './network.js';
 import type { SyncRetryEntry, RetryStatus } from '../types/retry.js';
 
 /**
@@ -138,3 +139,43 @@ export async function getRetryQueue(status?: RetryStatus): Promise<SyncRetryEntr
 
     return (data || []) as SyncRetryEntry[];
 }
+
+/**
+ * Process the retry queue.
+ */
+export async function processRetryQueue(): Promise<void> {
+    const dueRetries = await getDueRetries();
+    if (dueRetries.length === 0) return;
+
+    console.log(`🔄 Processing ${dueRetries.length} due retries...`);
+
+    for (const entry of dueRetries) {
+        try {
+            console.log(`  - Retrying sync for ${entry.instance_url} (${entry.sync_type})...`);
+
+            // Call the network service directly
+            await sendFederationSync(entry.instance_url, entry.sync_type, entry.payload);
+
+            await updateRetryStatus(entry.id, true);
+            console.log(`  ✅ Retry successful for ${entry.id}`);
+        } catch (error: any) {
+            console.warn(`  ❌ Retry failed for ${entry.id}: ${error.message}`);
+            await updateRetryStatus(entry.id, false, error.message);
+        }
+    }
+}
+
+/**
+ * Start the background retry worker.
+ */
+export function startRetryWorker(intervalMs: number = 60000): void {
+    console.log(`⚙️ Starting Sync Retry Worker (Interval: ${intervalMs}ms)`);
+    setInterval(async () => {
+        try {
+            await processRetryQueue();
+        } catch (error) {
+            console.error('Retry worker error:', error);
+        }
+    }, intervalMs);
+}
+

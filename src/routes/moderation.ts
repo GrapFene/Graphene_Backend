@@ -123,44 +123,52 @@ router.get('/blocks', requireAuth, requireModerator, async (req: Request, res: R
             code: 'INTERNAL_ERROR',
             message: 'Failed to fetch blocked instances'
         });
-        router.get('/sync-queue', requireAuth, requireModerator, async (req: Request, res: Response) => {
-            try {
-                const status = req.query.status as any;
-                const queue = await getRetryQueue(status);
-                res.status(200).json({
-                    success: true,
-                    queue,
-                    total: queue.length
-                });
-            } catch (error: any) {
-                console.error('Get retry queue error:', error);
-                res.status(500).json({
-                    code: 'INTERNAL_ERROR',
-                    message: 'Failed to fetch retry queue'
-                });
-            }
+    }
+});
+
+/**
+ * GET /moderation/sync-queue
+ * Monitor the status of the sync retry queue (requires moderator role).
+ */
+router.get('/sync-queue', requireAuth, requireModerator, async (req: Request, res: Response) => {
+    try {
+        const status = req.query.status as any;
+        const queue = await getRetryQueue(status);
+        res.status(200).json({
+            success: true,
+            queue,
+            total: queue.length
         });
-
-        /**
-         * GET /moderation/logs/rejections
-         * View sync rejection audit logs (requires moderator role).
-         */
-        router.get('/logs/rejections', requireAuth, requireModerator, async (req: Request, res: Response) => {
-            try {
-                const limit = parseInt(req.query.limit as string) || 100;
-                const logs = await getSyncRejectionLogs(limit);
-
-                res.status(200).json({
-                    logs,
-                    total: logs.length
-                });
-            } catch (error: any) {
-                console.error('Get rejection logs error:', error);
-                res.status(500).json({
-                    code: 'INTERNAL_ERROR',
-                    message: 'Failed to fetch rejection logs'
-                });
-            }
+    } catch (error: any) {
+        console.error('Get retry queue error:', error);
+        res.status(500).json({
+            code: 'INTERNAL_ERROR',
+            message: 'Failed to fetch retry queue'
         });
+    }
+});
 
-        export { router as moderationRouter };
+/**
+ * GET /moderation/logs/rejections
+ * View sync rejection audit logs (requires moderator role).
+ */
+router.get('/logs/rejections', requireAuth, requireModerator, async (req: Request, res: Response) => {
+    try {
+        const limit = parseInt(req.query.limit as string) || 100;
+        const logs = await getSyncRejectionLogs(limit);
+
+        res.status(200).json({
+            logs,
+            total: logs.length
+        });
+    } catch (error: any) {
+        console.error('Get rejection logs error:', error);
+        res.status(500).json({
+            code: 'INTERNAL_ERROR',
+            message: 'Failed to fetch rejection logs'
+        });
+    }
+});
+
+export { router as moderationRouter };
+

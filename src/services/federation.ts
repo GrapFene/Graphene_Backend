@@ -4,6 +4,7 @@
 
 import { isInstanceBlocked, logSyncRejection } from './moderation.js';
 import { queueForRetry } from './retry.js';
+import { sendFederationSync } from './network.js';
 import type { SyncInitiationRequest } from '../types/moderation-api.js';
 
 /**
@@ -15,17 +16,9 @@ export async function initiateOutgoingSync(
     payload: any
 ): Promise<void> {
     try {
-        console.log(`📡 Initiating outgoing sync to ${targetInstanceUrl}...`);
-
-        // Placeholder for actual HTTP request to peer Graphene instance
-        // Here we simulate a failure to demonstrate the retry queue
-        if (targetInstanceUrl.includes('fail')) {
-            throw new Error('Network timeout or peer instance unreachable');
-        }
-
-        console.log(`✅ Outgoing sync to ${targetInstanceUrl} successful.`);
+        await sendFederationSync(targetInstanceUrl, syncType, payload);
     } catch (error: any) {
-        console.warn(`⚠️ Sync to ${targetInstanceUrl} failed. Queuing for retry.`);
+        console.warn(`⚠️ Sync to ${targetInstanceUrl} failed. Queuing for retry: ${error.message}`);
         await queueForRetry(targetInstanceUrl, syncType, payload, error.message);
     }
 }
