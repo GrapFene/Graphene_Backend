@@ -4,7 +4,7 @@ async function checkDb() {
     const supabase = getSupabase();
     console.log('--- DB Check Start ---');
 
-    const tables = ['blocked_instances', 'sync_rejection_logs', 'identities'];
+    const tables = ['blocked_instances', 'sync_rejection_logs', 'identities', 'sync_retry_queue'];
 
     for (const table of tables) {
         try {

@@ -30,6 +30,22 @@ export async function queueForRetry(
 ): Promise<void> {
     const supabase = getSupabase();
 
+    // Deduplication: Check if there's already a pending retry for this instance and type
+    // In a real scenario, we might also hash the payload to be more precise
+    const { data: existing } = await supabase
+        .from('sync_retry_queue')
+        .select('id')
+        .eq('instance_url', instanceUrl)
+        .eq('sync_type', syncType)
+        .eq('status', 'pending')
+        .limit(1)
+        .single();
+
+    if (existing) {
+        console.log(`ℹ️ Pending retry already exists for ${instanceUrl} (${syncType}). Skipping duplicate.`);
+        return;
+    }
+
     const nextRetryAt = new Date();
     nextRetryAt.setMinutes(nextRetryAt.getMinutes() + calculateBackoff(0));
 
