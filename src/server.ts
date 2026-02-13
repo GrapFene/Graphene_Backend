@@ -15,6 +15,7 @@ import {
     federationRouter,
     recoveryRouter,
 } from './routes/index.js';
+import { startRetryWorker } from './services/retry.js';
 
 // Validate environment before starting
 validateConfig();
@@ -43,6 +44,9 @@ app.use('/recovery', recoveryRouter);
 app.get('/health', (_, res) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
+
+// Start retry worker
+startRetryWorker();
 
 // Start server
 app.listen(config.server.port, () => {
