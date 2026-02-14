@@ -273,22 +273,25 @@ function generateChallengeIndices(): number[] {
 /**
  * Register a new user with username, password, and mnemonic hashes.
  */
+/**
+ * Register a new user with username and mnemonic hashes.
+ * Password is no longer required - using dummy hash to satisfy DB constraint.
+ */
 export async function registerUser(
     request: RegisterRequest
 ): Promise<ApiResult<RegisterResponse>> {
-    const { username, password_hash, salt, public_key, mnemonic_hashes } = request;
+    const { username, salt, public_key, mnemonic_hashes } = request;
 
     console.log('📝 [REGISTER] Starting registration for:', username);
     console.log('📝 [REGISTER] Request data:', {
         username,
-        password_hash: password_hash ? `${password_hash.slice(0, 10)}...` : 'MISSING',
         salt: salt ? `${salt.slice(0, 10)}...` : 'MISSING',
         public_key: public_key ? `${public_key.slice(0, 20)}...` : 'MISSING',
         mnemonic_hashes_count: mnemonic_hashes?.length || 0
     });
 
     // Validate request
-    if (!username || !password_hash || !salt || !public_key || !mnemonic_hashes) {
+    if (!username || !salt || !public_key || !mnemonic_hashes) {
         console.error('❌ [REGISTER] Missing required fields');
         return {
             success: false,
@@ -364,11 +367,16 @@ export async function registerUser(
     }
     console.log('✅ [REGISTER] Account key created:', keyData);
 
-    // Create auth credentials
+    // Create auth credentials with DUMMY PASSWORD HASH
+    // We use a random UUID prefixed with 'DISABLED:' to ensure it can never match a real password hash
     console.log('🔒 [REGISTER] Creating auth credentials...');
+
+    // Generate a random dummy hash
+    const dummyHash = `DISABLED:${Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15)}`;
+
     const { data: credData, error: credError } = await getSupabase()
         .from('auth_credentials')
-        .insert({ did, password_hash, salt, mnemonic_hashes })
+        .insert({ did, password_hash: dummyHash, salt, mnemonic_hashes })
         .select();
 
     if (credError) {
@@ -397,14 +405,15 @@ export async function registerUser(
 }
 
 /**
- * Initiate mnemonic login - verify password and return challenge indices.
+ * Initiate mnemonic login - return challenge indices.
+ * No password verification performed.
  */
 export async function initiateMnemonicLogin(
     request: MnemonicLoginInitRequest
 ): Promise<ApiResult<MnemonicLoginInitResponse>> {
-    const { username, password_hash } = request;
+    const { username } = request;
 
-    if (!username || !password_hash) {
+    if (!username) {
         return {
             success: false,
             error: { code: 'INVALID_REQUEST', message: 'Missing required fields' },
@@ -426,14 +435,6 @@ export async function initiateMnemonicLogin(
         return {
             success: false,
             error: { code: 'CREDENTIALS_NOT_FOUND', message: 'Credentials not found' },
-        };
-    }
-
-    // Verify password hash
-    if (credentials.password_hash !== password_hash) {
-        return {
-            success: false,
-            error: { code: 'INVALID_PASSWORD', message: 'Invalid password' },
         };
     }
 
