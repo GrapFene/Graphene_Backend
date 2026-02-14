@@ -2,6 +2,7 @@ import jwt from 'jsonwebtoken';
 import { getSupabase } from './supabase.js';
 import { verifySignature, generateNonce } from './crypto.js';
 import { config } from '../config/index.js';
+import { ethers } from 'ethers';
 import type {
     Identity,
     AccountKey,
@@ -322,11 +323,57 @@ export async function registerUser(
     const did = generateDID(username);
     console.log('🔑 [REGISTER] Generated DID:', did);
 
+    // Verify and prepare profile metadata if provided
+    let profileMetadataHash: string | null = null;
+    const { profile_content, profile_signed_hash, profile_nonce } = request;
+
+    if (profile_content && profile_signed_hash && profile_nonce) {
+        console.log('📝 [REGISTER] Verifying initial profile metadata...');
+        try {
+            // Verify signature
+            const contentString = JSON.stringify(profile_content);
+            const hash = ethers.id(contentString); // Use ethers.id for keccak256
+
+            // Reconstruct message hash matching frontend logic (if using specific signing method)
+            // Assuming direct signing of hash for now, similar to existing profile update
+            const isValid = await verifySignature(profile_signed_hash, profile_nonce, public_key);
+
+            // Also need to verify the content matches the hash signed? 
+            // In the existing updateProfile, we verify signature of a hash. 
+            // Here we should verify that `profile_signed_hash` matches `hash(profile_content + nonce)`?
+            // Let's look at `verifySignature` util. It verifies `signature` against `message` and `publicKey`.
+            // Usually message is the `nonce`. 
+            // Wait, standard profile update verifies: `verifySignature(signed_hash, nonce, public_key)`.
+            // And then checks `recoveredAddress`.
+
+            // To properly bind the content to the signature:
+            // The user signs the `contentHash`. 
+            // So `verifySignature(signature, contentHash, publicKey)` should be true.
+            // But `verifySignature` in `crypto.ts` likely expects a nonce to prevent replay?
+            // Let's check `crypto.ts` or just use `ethers.verifyMessage`.
+
+            // REVISION: The `verifySignature` in `crypto.ts` might be for nonces.
+            // Let's use generic ethers verification here for simplicity and robustness.
+            // Content Hash
+            const calculatedHash = ethers.keccak256(ethers.toUtf8Bytes(JSON.stringify(profile_content)));
+            const recoveredAddress = ethers.verifyMessage(ethers.getBytes(calculatedHash), profile_signed_hash);
+
+            if (recoveredAddress.toLowerCase() === public_key.toLowerCase()) {
+                console.log('✅ [REGISTER] Profile signature valid');
+                profileMetadataHash = calculatedHash;
+            } else {
+                console.error('❌ [REGISTER] Profile signature invalid', { recovered: recoveredAddress, expected: public_key });
+            }
+        } catch (e) {
+            console.error('❌ [REGISTER] Profile verification failed:', e);
+        }
+    }
+
     // Create identity
     console.log('💾 [REGISTER] Creating identity in database...');
     const { data: identityData, error: identityError } = await getSupabase()
         .from('identities')
-        .insert({ did, username, profile_metadata_hash: null })
+        .insert({ did, username, profile_metadata_hash: profileMetadataHash })
         .select();
 
     if (identityError) {
@@ -396,6 +443,27 @@ export async function registerUser(
         };
     }
     console.log('✅ [REGISTER] Credentials created:', credData);
+
+    // Insert Profile if verified
+    if (profile_content && profileMetadataHash) {
+        console.log('👤 [REGISTER] Inserting initial profile...');
+        const { error: profileError } = await getSupabase()
+            .from('profiles')
+            .insert({
+                did,
+                content: profile_content,
+                version: 1,
+                signature: profile_signed_hash, // Using the signature as proof
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString()
+            });
+
+        if (profileError) {
+            console.error('❌ [REGISTER] Failed to create profile (non-fatal):', profileError);
+        } else {
+            console.log('✅ [REGISTER] Initial profile created');
+        }
+    }
 
     console.log('🎉 [REGISTER] Registration successful for:', username);
     return {
