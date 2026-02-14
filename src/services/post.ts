@@ -5,7 +5,7 @@ import { CommunityService } from './community.js';
 export class PostService {
     private static tableName = 'posts';
 
-    static async createPost(did: string, { title, content, subreddit }: CreatePostDto): Promise<Post> {
+    static async createPost(did: string, { title, content, subreddit, media_url, media_type }: CreatePostDto): Promise<Post> {
         const supabase = getSupabase();
 
         // Ensure did is provided
@@ -23,7 +23,9 @@ export class PostService {
                 author_did: did,
                 title,
                 content,
-                subreddit
+                subreddit,
+                media_url,
+                media_type
             })
             .select() // Return the created post
             .single();

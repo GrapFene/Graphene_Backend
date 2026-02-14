@@ -4,6 +4,8 @@ export interface Post {
     title: string;
     content: string;
     subreddit?: string;
+    media_url?: string;
+    media_type?: 'image' | 'video';
     created_at: string;
     updated_at: string;
 
@@ -18,4 +20,6 @@ export interface CreatePostDto {
     title: string;
     content: string;
     subreddit?: string;
+    media_url?: string;
+    media_type?: 'image' | 'video';
 }
