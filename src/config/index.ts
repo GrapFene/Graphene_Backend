@@ -12,7 +12,11 @@ export const config = {
     },
     server: {
         port: parseInt(process.env.PORT || '3000', 10),
+        instanceUrl: process.env.INSTANCE_URL || `http://localhost:${process.env.PORT || '3000'}`,
     },
+    federation: {
+        privateKey: process.env.FEDERATION_PRIVATE_KEY || '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80', // Default Dev Key (Hardhat #0)
+    }
 } as const;
 
 // Validate required environment variables

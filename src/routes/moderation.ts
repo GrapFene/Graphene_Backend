@@ -11,6 +11,7 @@ import {
     getSyncRejectionLogs
 } from '../services/moderation.js';
 import { getRetryQueue } from '../services/retry.js';
+import { SubscriptionService } from '../services/subscription.js';
 import type {
     BlockInstanceRequest,
     BlockInstanceResponse,
@@ -19,6 +20,91 @@ import type {
 } from '../types/moderation-api.js';
 
 const router = Router();
+
+/**
+ * POST /moderation/subscriptions
+ * Subscribe to a topic from a peer (requires moderator role).
+ */
+router.post('/subscriptions', requireAuth, requireModerator, async (req: Request, res: Response) => {
+    try {
+        const { instance_url, topic } = req.body;
+
+        if (!instance_url || !topic) {
+            res.status(400).json({
+                code: 'INVALID_REQUEST',
+                message: 'instance_url and topic are required'
+            });
+            return;
+        }
+
+        await SubscriptionService.subscribeToTopic(instance_url, topic);
+
+        res.status(201).json({
+            success: true,
+            message: `Subscribed to ${topic} from ${instance_url}`
+        });
+    } catch (error: any) {
+        console.error('Subscribe error:', error);
+        res.status(500).json({
+            code: 'INTERNAL_ERROR',
+            message: 'Failed to subscribe to topic'
+        });
+    }
+});
+
+/**
+ * DELETE /moderation/subscriptions
+ * Unsubscribe from a topic (requires moderator role).
+ */
+router.delete('/subscriptions', requireAuth, requireModerator, async (req: Request, res: Response) => {
+    try {
+        const { instance_url, topic } = req.body;
+
+        if (!instance_url || !topic) {
+            res.status(400).json({
+                code: 'INVALID_REQUEST',
+                message: 'instance_url and topic are required'
+            });
+            return;
+        }
+
+        await SubscriptionService.unsubscribeFromTopic(instance_url, topic);
+
+        res.status(200).json({
+            success: true,
+            message: `Unsubscribed from ${topic} from ${instance_url}`
+        });
+    } catch (error: any) {
+        console.error('Unsubscribe error:', error);
+        res.status(500).json({
+            code: 'INTERNAL_ERROR',
+            message: 'Failed to unsubscribe'
+        });
+    }
+});
+
+/**
+ * GET /moderation/subscriptions/:instance_url
+ * List all subscriptions for a specific instance.
+ */
+router.get('/subscriptions/:instance_url', requireAuth, requireModerator, async (req: Request, res: Response) => {
+    try {
+        const instanceUrl = decodeURIComponent(req.params.instance_url);
+        const subscriptions = await SubscriptionService.getInstanceSubscriptions(instanceUrl);
+
+        res.status(200).json({
+            instance_url: instanceUrl,
+            subscriptions,
+            total: subscriptions.length
+        });
+    } catch (error: any) {
+        console.error('List subscriptions error:', error);
+        res.status(500).json({
+            code: 'INTERNAL_ERROR',
+            message: 'Failed to fetch subscriptions'
+        });
+    }
+});
 
 /**
  * POST /moderation/blocks
