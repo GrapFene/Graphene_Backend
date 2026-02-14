@@ -11,8 +11,11 @@ import {
     blockRouter,
     profileRouter,
     commentRouter,
-    recoveryRouter
+    moderationRouter,
+    federationRouter,
+    recoveryRouter,
 } from './routes/index.js';
+import { startRetryWorker } from './services/retry.js';
 
 // Validate environment before starting
 validateConfig();
@@ -33,12 +36,17 @@ app.use('/proposals', proposalRouter);
 app.use('/blocks', blockRouter);
 app.use('/profile', profileRouter);
 app.use('/comments', commentRouter);
+app.use('/moderation', moderationRouter);
+app.use('/federation', federationRouter);
 app.use('/recovery', recoveryRouter);
 
 // Health check
 app.get('/health', (_, res) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
+
+// Start retry worker
+startRetryWorker();
 
 // Start server
 app.listen(config.server.port, () => {

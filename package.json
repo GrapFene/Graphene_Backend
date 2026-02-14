@@ -1,6 +1,7 @@
 {
   "name": "graphene-backend",
   "version": "1.0.0",
+  "type": "module",
   "description": "Federated, minimalist social network with sovereign identity",
   "main": "dist/server.js",
   "scripts": {

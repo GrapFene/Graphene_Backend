@@ -6,6 +6,12 @@ export interface Post {
     subreddit?: string;
     created_at: string;
     updated_at: string;
+
+    // Federation & Trust
+    signature?: string;
+    signer_did?: string;
+    is_verified?: boolean;
+    source_instance_url?: string;
 }
 
 export interface CreatePostDto {

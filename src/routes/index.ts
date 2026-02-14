@@ -7,6 +7,8 @@ import { proposalRouter } from './proposal.js';
 import { blockRouter } from './block.js';
 import profileRouter from './profile.js';
 import { commentRouter } from './comment.js';
+import { moderationRouter } from './moderation.js';
+import { federationRouter } from './federation.js';
 
 export {
     authRouter,
@@ -17,6 +19,8 @@ export {
     proposalRouter,
     blockRouter,
     profileRouter,
-    commentRouter
+    commentRouter,
+    moderationRouter,
+    federationRouter
 };
 export { default as recoveryRouter } from './recovery.js';

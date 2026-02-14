@@ -51,6 +51,32 @@ export async function verifySignature(
 }
 
 /**
+ * Sign a message using a private key.
+ */
+export async function signMessage(message: string, privateKey: string): Promise<string> {
+    const wallet = new ethers.Wallet(privateKey);
+    return await wallet.signMessage(message);
+}
+
+/**
+ * Get Ethereum address from a public key.
+ */
+export function getAddressFromPublicKey(publicKey: string): string {
+    if (publicKey.startsWith('0x') && publicKey.length === 42) {
+        return publicKey.toLowerCase();
+    }
+
+    try {
+        return ethers.computeAddress(publicKey.startsWith('0x') ? publicKey : `0x${publicKey}`).toLowerCase();
+    } catch (e) {
+        if (publicKey.length === 40) {
+            return `0x${publicKey.toLowerCase()}`;
+        }
+        return publicKey.toLowerCase();
+    }
+}
+
+/**
  * Generate a random nonce for auth challenges.
  */
 export function generateNonce(length: number = 32): string {
