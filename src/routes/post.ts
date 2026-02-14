@@ -1,5 +1,7 @@
-import express from 'express';
+import express, { Request } from 'express';
 import { PostService } from '../services/post.js';
+import { Post, CreatePostDto } from '../types/post.js'; // Import DTO
+import { AuthRequest, authenticateToken } from '../middleware/auth.js'; // Import middleware
 
 const router = express.Router();
 
@@ -66,27 +68,20 @@ router.get('/', async (req, res) => {
 });
 
 // POST /posts - Create a new post
-// TODO: Add proper authentication middleware to extract DID from token
-// For now, we might need to pass DID in body or header for testing if auth middleware isn't ready
-// But looking at auth.ts, we should use a middleware. 
-// I'll check if there is an auth middleware available or if I need to create one.
-// Assuming for now the client sends the DID in the body for simplicity until middleware is confirmed.
-// Wait, looking at the plan, I said "Protected route".
-// I will check `auth.ts` to see if it exports a middleware.
-// If not, I'll implement a simple check or rely on the token.
-
-router.post('/', async (req, res) => {
+router.post('/', authenticateToken, async (req, res) => {
     try {
-        const { did, title, content, subreddit } = req.body;
+        const { title, content, subreddit, media_url, media_type } = req.body as CreatePostDto;
+        const did = (req as AuthRequest).user?.sub;
 
-        if (!did || !title || !content) {
-            return res.status(400).json({ error: 'DID, title, and content are required' });
+        if (!did) {
+            return res.status(401).json({ error: 'Unauthorized' });
         }
 
-        const post = await PostService.createPost(did, { title, content, subreddit });
-        res.status(201).json(post);
+        const newPost = await PostService.createPost(did, { title, content, subreddit, media_url, media_type });
+        res.status(201).json(newPost);
     } catch (error: any) {
-        res.status(500).json({ error: error.message });
+        console.error('Error creating post:', error);
+        res.status(500).json({ error: error.message || 'Failed to create post' });
     }
 });
 
