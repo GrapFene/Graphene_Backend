@@ -9,6 +9,7 @@ import profileRouter from './profile.js';
 import { commentRouter } from './comment.js';
 import { moderationRouter } from './moderation.js';
 import { federationRouter } from './federation.js';
+import { default as uploadRouter } from './upload.js';
 
 export {
     authRouter,
@@ -21,6 +22,7 @@ export {
     profileRouter,
     commentRouter,
     moderationRouter,
-    federationRouter
+    federationRouter,
+    uploadRouter
 };
 export { default as recoveryRouter } from './recovery.js';

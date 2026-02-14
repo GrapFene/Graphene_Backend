@@ -14,6 +14,7 @@ import {
     moderationRouter,
     federationRouter,
     recoveryRouter,
+    uploadRouter,
 } from './routes/index.js';
 import { startRetryWorker } from './services/retry.js';
 
@@ -39,6 +40,7 @@ app.use('/comments', commentRouter);
 app.use('/moderation', moderationRouter);
 app.use('/federation', federationRouter);
 app.use('/recovery', recoveryRouter);
+app.use('/upload', uploadRouter);
 
 // Health check
 app.get('/health', (_, res) => {
