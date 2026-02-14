@@ -15,12 +15,31 @@ router.get('/:id', async (req, res) => {
             return res.status(404).json({ error: 'Post not found' });
         }
 
+        // Enrich with vote data
+        const { VoteService } = await import('../services/vote.js');
+        const score = await VoteService.getPostScore(post.id);
+
+        let userVote = null;
+        if (viewerDid) {
+            const { getSupabase } = await import('../services/supabase.js');
+            const supabase = getSupabase();
+            const { data } = await supabase
+                .from('post_votes')
+                .select('vote_type')
+                .eq('post_id', post.id)
+                .eq('voter_did', viewerDid)
+                .maybeSingle();
+
+            userVote = data?.vote_type || null;
+        }
+
+        const enrichedPost = { ...post, score, user_vote: userVote };
+
         // Fetch Comments
-        // We can lazy load CommentService or import it.
         const { CommentService } = await import('../services/comment.js');
         const comments = await CommentService.getCommentsByPost(id, viewerDid);
 
-        res.json({ ...post, comments });
+        res.json({ ...enrichedPost, comments });
     } catch (error: any) {
         res.status(500).json({ error: error.message });
     }
@@ -66,6 +85,29 @@ router.post('/', async (req, res) => {
 
         const post = await PostService.createPost(did, { title, content, subreddit });
         res.status(201).json(post);
+    } catch (error: any) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// POST /posts/:id/vote - Vote on a post
+router.post('/:id/vote', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { did, voteType } = req.body;
+
+        if (!did) {
+            return res.status(400).json({ error: 'DID is required' });
+        }
+
+        if (voteType !== 1 && voteType !== -1 && voteType !== 0) {
+            return res.status(400).json({ error: 'voteType must be 1 (upvote), -1 (downvote), or 0 (remove vote)' });
+        }
+
+        const { VoteService } = await import('../services/vote.js');
+        const result = await VoteService.voteOnPost(did, id, voteType);
+
+        res.json(result);
     } catch (error: any) {
         res.status(500).json({ error: error.message });
     }
