@@ -174,13 +174,16 @@ export async function initiateRecovery(
         };
     }
 
+    // Use provided hash or generate dummy if missing (Password-less mode)
+    const passwordHashToUse = new_password_hash || `DISABLED:${Math.random().toString(36).substring(2, 15)}`;
+
     // Create Request
     const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
     const { data, error } = await getSupabase()
         .from('recovery_requests')
         .insert({
             did: target_did,
-            new_password_hash,
+            new_password_hash: passwordHashToUse,
             new_salt,
             new_mnemonic_hashes,
             status: 'pending',
