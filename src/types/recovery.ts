@@ -32,8 +32,8 @@ export interface SetGuardiansRequest {
 
 export interface InitiateRecoveryRequest {
     target_did: string;
-    new_username: string; // To verify against DID or just for UX
-    new_password_hash: string;
+    new_username?: string; // To verify against DID or just for UX - Making optional as it's not strictly required by logic
+    new_password_hash?: string; // Optional: Dummy hash used if not provided
     new_salt: string;
     new_mnemonic_hashes: string[];
 }
