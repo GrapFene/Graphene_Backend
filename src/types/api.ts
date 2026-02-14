@@ -60,7 +60,6 @@ export interface ApiResult<T> {
 /** Request body for user registration */
 export interface RegisterRequest {
     username: string;
-    password_hash: string;
     salt: string;
     public_key: string;
     mnemonic_hashes: string[];
@@ -75,7 +74,6 @@ export interface RegisterResponse {
 /** Request body for initiating mnemonic login (step 1) */
 export interface MnemonicLoginInitRequest {
     username: string;
-    password_hash: string;
 }
 
 /** Response containing challenge indices for mnemonic verification */
