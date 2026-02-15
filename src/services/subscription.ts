@@ -83,4 +83,88 @@ export class SubscriptionService {
         if (error) return [];
         return data.map(sub => sub.topic);
     }
+
+    // =============================================================================
+    // User Subscriptions (Local)
+    // =============================================================================
+
+    static async subscribe(did: string, subreddit: string) {
+        const supabase = getSupabase();
+        
+        // Check if already subscribed
+        const { data: existing } = await supabase
+            .from('subscriptions')
+            .select('id')
+            .eq('subscriber_did', did)
+            .eq('subreddit', subreddit)
+            .maybeSingle();
+            
+        if (existing) return existing;
+
+        const { data, error } = await supabase
+            .from('subscriptions')
+            .insert({
+                subscriber_did: did,
+                subreddit: subreddit
+            })
+            .select()
+            .single();
+
+        if (error) {
+            throw new Error(`Failed to subscribe: ${error.message}`);
+        }
+        return data;
+    }
+
+    static async unsubscribe(did: string, subreddit: string) {
+        const supabase = getSupabase();
+        
+        const { error } = await supabase
+            .from('subscriptions')
+            .delete()
+            .eq('subscriber_did', did)
+            .eq('subreddit', subreddit);
+
+        if (error) {
+            throw new Error(`Failed to unsubscribe: ${error.message}`);
+        }
+    }
+
+    static async getSubscriptions(did: string) {
+        const supabase = getSupabase();
+        
+        const { data, error } = await supabase
+            .from('subscriptions')
+            .select('subreddit')
+            .eq('subscriber_did', did);
+
+        if (error) {
+            throw new Error(`Failed to get user subscriptions: ${error.message}`);
+        }
+        return data.map((row: any) => row.subreddit);
+    }
+
+    static async getPersonalizedFeed(did: string) {
+        // Only return posts from subscribed subreddits
+        // This is a simplified version. Ideally you'd join with posts table.
+        const supabase = getSupabase();
+        
+        // 1. Get user subscriptions
+        const subs = await this.getSubscriptions(did);
+        
+        if (subs.length === 0) return [];
+        
+        // 2. Fetch posts from those subreddits
+        const { data, error } = await supabase
+            .from('posts')
+            .select('*')
+            .in('subreddit', subs)
+            .order('created_at', { ascending: false })
+            .limit(50);
+            
+        if (error) {
+            throw new Error(`Failed to fetch personalized feed: ${error.message}`);
+        }
+        return data;
+    }
 }
