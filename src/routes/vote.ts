@@ -13,8 +13,8 @@ router.post('/', async (req, res) => {
             return res.status(400).json({ error: 'DID, postId, and voteType are required' });
         }
 
-        const vote = await VoteService.castVote(did, postId, voteType);
-        res.status(201).json(vote);
+        const result = await VoteService.voteOnPost(did, postId, voteType);
+        res.status(201).json(result);
     } catch (error: any) {
         res.status(500).json({ error: error.message });
     }
