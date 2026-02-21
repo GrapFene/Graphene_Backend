@@ -3,9 +3,147 @@ import { Vote } from '../types/vote.js';
 import { Post } from '../types/post.js';
 import { cacheService } from './cache.js';
 
+// In-memory cache for vote scores and recent vote operations
+interface VoteCache {
+    score: number;
+    lastUpdated: number;
+}
+
+interface PendingVoteOperation {
+    did: string;
+    postId: string;
+    voteType: number;
+    timestamp: number;
+}
+
 export class VoteService {
     private static tableName = 'post_votes';
-    private static CACHE_TTL = 60; // 1 minute cache for scores
+    private static scoreCache: Map<string, VoteCache> = new Map();
+    private static pendingVotes: Map<string, PendingVoteOperation> = new Map();
+    private static CACHE_TTL = 5000; // 5 seconds cache
+    private static BATCH_INTERVAL = 1000; // 1 second batch interval
+    private static batchTimer: NodeJS.Timeout | null = null;
+
+    /**
+     * Initialize batch processing timer
+     */
+    private static initBatchProcessor() {
+        if (!this.batchTimer) {
+            this.batchTimer = setInterval(() => {
+                this.processPendingVotes();
+            }, this.BATCH_INTERVAL);
+        }
+    }
+
+    /**
+     * Process all pending votes in batch
+     */
+    private static async processPendingVotes() {
+        if (this.pendingVotes.size === 0) return;
+
+        const operations = Array.from(this.pendingVotes.values());
+        this.pendingVotes.clear();
+
+        // Process all pending votes
+        for (const op of operations) {
+            try {
+                await this.persistVote(op.did, op.postId, op.voteType);
+            } catch (error) {
+                console.error('Failed to persist vote:', error);
+                // Re-add to pending queue for retry
+                const key = `${op.did}:${op.postId}`;
+                this.pendingVotes.set(key, op);
+            }
+        }
+    }
+
+    /**
+     * Persist a single vote to database
+     */
+    private static async persistVote(did: string, postId: string, voteType: number) {
+        const supabase = getSupabase();
+
+        if (voteType === 0) {
+            // Delete vote
+            await supabase
+                .from(this.tableName)
+                .delete()
+                .eq('post_id', postId)
+                .eq('voter_did', did);
+        } else {
+            // Check if vote exists
+            const { data: existing } = await supabase
+                .from(this.tableName)
+                .select('*')
+                .eq('post_id', postId)
+                .eq('voter_did', did)
+                .maybeSingle();
+
+            if (existing) {
+                // Update existing vote
+                await supabase
+                    .from(this.tableName)
+                    .update({ vote_type: voteType })
+                    .eq('id', existing.id);
+            } else {
+                // Insert new vote
+                await supabase
+                    .from(this.tableName)
+                    .insert({
+                        post_id: postId,
+                        voter_did: did,
+                        vote_type: voteType
+                    });
+            }
+        }
+
+        // Invalidate cache after persisting
+        this.scoreCache.delete(postId);
+    }
+
+    /**
+     * Get cached score or fetch from database
+     */
+    private static async getCachedScore(postId: string): Promise<number> {
+        const cached = this.scoreCache.get(postId);
+        const now = Date.now();
+
+        if (cached && (now - cached.lastUpdated) < this.CACHE_TTL) {
+            return cached.score;
+        }
+
+        // Fetch from database
+        const score = await this.getPostScoreFromDB(postId);
+        this.scoreCache.set(postId, { score, lastUpdated: now });
+        return score;
+    }
+
+    /**
+     * Calculate score from database
+     */
+    private static async getPostScoreFromDB(postId: string): Promise<number> {
+        const supabase = getSupabase();
+
+        // Count upvotes
+        const { count: upvotes, error: upError } = await supabase
+            .from(this.tableName)
+            .select('*', { count: 'exact', head: true })
+            .eq('post_id', postId)
+            .eq('vote_type', 1);
+
+        if (upError) throw new Error(`Failed to count upvotes: ${upError.message}`);
+
+        // Count downvotes
+        const { count: downvotes, error: downError } = await supabase
+            .from(this.tableName)
+            .select('*', { count: 'exact', head: true })
+            .eq('post_id', postId)
+            .eq('vote_type', -1);
+
+        if (downError) throw new Error(`Failed to count downvotes: ${downError.message}`);
+
+        return (upvotes || 0) - (downvotes || 0);
+    }
 
     /**
      * Cast or update a vote. handling race conditions with atomic upsert
@@ -36,80 +174,68 @@ export class VoteService {
      * Uses caching to reduce DB load.
      */
     static async getPostScore(postId: string): Promise<number> {
-        const cacheKey = `post_score:${postId}`;
-
-        return cacheService.getOrSet(cacheKey, async () => {
-            const supabase = getSupabase();
-
-            // Count upvotes
-            const { count: upvotes, error: upError } = await supabase
-                .from(this.tableName)
-                .select('*', { count: 'exact', head: true })
-                .eq('post_id', postId)
-                .eq('vote_type', 1);
-
-            if (upError) throw new Error(`Failed to count upvotes: ${upError.message}`);
-
-            // Count downvotes
-            const { count: downvotes, error: downError } = await supabase
-                .from(this.tableName)
-                .select('*', { count: 'exact', head: true })
-                .eq('post_id', postId)
-                .eq('vote_type', -1);
-
-            if (downError) throw new Error(`Failed to count downvotes: ${downError.message}`);
-
-            return (upvotes || 0) - (downvotes || 0);
-        }, this.CACHE_TTL);
+        return this.getCachedScore(postId);
     }
 
     /**
      * Vote on a post with support for removing votes (voteType = 0)
      * Returns the updated vote count and user's current vote
-     * Uses atomic upsert/delete and updates cache
+     * Uses caching and batching for better performance
      */
     static async voteOnPost(did: string, postId: string, voteType: number): Promise<{ score: number; userVote: number | null }> {
         if (![1, -1, 0].includes(voteType)) {
             throw new Error('Invalid vote type. Must be 1 (upvote), -1 (downvote), or 0 (remove vote)');
         }
 
+        // Initialize batch processor
+        this.initBatchProcessor();
+
         const supabase = getSupabase();
 
-        // 1. Perform atomic DB operation
+        // Get current user's vote from DB
+        const { data: existing } = await supabase
+            .from(this.tableName)
+            .select('*')
+            .eq('post_id', postId)
+            .eq('voter_did', did)
+            .maybeSingle();
+
+        const previousVote = existing?.vote_type || 0;
+
+        // Calculate optimistic score change
+        let scoreChange = 0;
         if (voteType === 0) {
-            // Remove vote
-            const { error } = await supabase
-                .from(this.tableName)
-                .delete()
-                .eq('post_id', postId)
-                .eq('voter_did', did);
-
-            if (error) throw new Error(`Failed to remove vote: ${error.message}`);
+            // Removing vote
+            scoreChange = previousVote === 1 ? -1 : previousVote === -1 ? 1 : 0;
+        } else if (previousVote === 0) {
+            // New vote
+            scoreChange = voteType;
         } else {
-            // Upsert vote (Insert or Update)
-            const { error } = await supabase
-                .from(this.tableName)
-                .upsert({
-                    post_id: postId,
-                    voter_did: did,
-                    vote_type: voteType
-                }, { onConflict: 'post_id,voter_did' });
-
-            if (error) throw new Error(`Failed to upsert vote: ${error.message}`);
+            // Switching vote
+            scoreChange = voteType - previousVote; // e.g., 1 - (-1) = 2, or -1 - 1 = -2
         }
 
-        // 2. Invalidate or Update Cache
-        // Simple strategy: Invalidate the score so next fetch gets fresh data. 
-        // Or we could try to increment/decrement slightly risky without locking, 
-        // but for a social app, eventual consistency is fine.
-        // Let's just invalidate for correctness.
-        cacheService.del(`post_score:${postId}`);
+        // Get current cached score or fetch from DB
+        let currentScore = await this.getCachedScore(postId);
+        const newScore = currentScore + scoreChange;
 
-        // 3. Get updated score (will trigger cache refresh)
-        const score = await this.getPostScore(postId);
+        // Update cache immediately
+        this.scoreCache.set(postId, {
+            score: newScore,
+            lastUpdated: Date.now()
+        });
+
+        // Add to pending batch operations
+        const key = `${did}:${postId}`;
+        this.pendingVotes.set(key, {
+            did,
+            postId,
+            voteType,
+            timestamp: Date.now()
+        });
 
         return {
-            score,
+            score: newScore,
             userVote: voteType === 0 ? null : voteType
         };
     }

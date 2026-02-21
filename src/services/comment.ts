@@ -136,6 +136,37 @@ export class CommentService {
         return (upvotes || 0) - (downvotes || 0);
     }
 
+    /**
+     * Get comment counts for multiple posts in batch
+     * Returns a map of postId -> comment count
+     */
+    static async getCommentCountsForPosts(postIds: string[]): Promise<Record<string, number>> {
+        if (postIds.length === 0) return {};
+
+        const supabase = getSupabase();
+
+        // Fetch all comments for these posts
+        const { data: comments, error } = await supabase
+            .from(this.tableName)
+            .select('post_id')
+            .in('post_id', postIds);
+
+        if (error) {
+            console.error('Failed to fetch comment counts:', error);
+            return {};
+        }
+
+        // Count comments per post
+        const counts: Record<string, number> = {};
+        postIds.forEach(id => counts[id] = 0);
+
+        comments?.forEach((comment: any) => {
+            counts[comment.post_id] = (counts[comment.post_id] || 0) + 1;
+        });
+
+        return counts;
+    }
+
     static async getUserVote(commentId: string, did: string): Promise<number> {
         const supabase = getSupabase();
         const { data } = await supabase

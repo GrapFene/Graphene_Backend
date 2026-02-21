@@ -63,17 +63,23 @@ export class PostService {
         if (posts.length === 0) return [];
 
         const { VoteService } = await import('./vote.js');
+        const { CommentService } = await import('./comment.js');
         const postIds = posts.map(p => p.id);
 
-        // Single batch query instead of N+1
-        const votesMap = await VoteService.getVotesForPosts(postIds, viewerDid);
+        // Batch fetch votes and comment counts
+        const [votesMap, commentCounts] = await Promise.all([
+            VoteService.getVotesForPosts(postIds, viewerDid),
+            CommentService.getCommentCountsForPosts(postIds)
+        ]);
 
         return posts.map((post: any) => {
             const voteData = votesMap[post.id] || { score: 0, userVote: null };
+            const commentCount = commentCounts[post.id] || 0;
             return {
                 ...post,
                 score: voteData.score,
-                user_vote: voteData.userVote
+                user_vote: voteData.userVote,
+                comment_count: commentCount
             };
         });
     }
