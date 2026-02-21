@@ -563,12 +563,21 @@ export async function verifyMnemonicLogin(
     for (let i = 0; i < 3; i++) {
         const idx = indices[i];
         if (idx < 0 || idx >= 12) {
+            console.log(`  ❌ Invalid index: ${idx}`);
             return {
                 success: false,
                 error: { code: 'INVALID_INDEX', message: 'Invalid mnemonic index' },
             };
         }
-        if (credentials.mnemonic_hashes[idx] !== word_hashes[i]) {
+        const storedHash = credentials.mnemonic_hashes[idx];
+        const providedHash = word_hashes[i];
+        
+        console.log(`  - Word ${i + 1} (index ${idx}):`);
+        console.log(`    Stored:   ${storedHash}`);
+        console.log(`    Provided: ${providedHash}`);
+        console.log(`    Match: ${storedHash === providedHash ? '✅' : '❌'}`);
+        
+        if (storedHash !== providedHash) {
             return {
                 success: false,
                 error: { code: 'INVALID_MNEMONIC', message: 'Incorrect mnemonic word' },

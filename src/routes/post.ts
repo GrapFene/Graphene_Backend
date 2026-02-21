@@ -108,4 +108,144 @@ router.post('/:id/vote', async (req, res) => {
     }
 });
 
+// GET /posts/user/:did - Get posts by user DID
+router.get('/user/:did', authenticateToken, async (req, res) => {
+    try {
+        const { did } = req.params;
+        const viewerDid = (req as AuthRequest).user?.sub;
+
+        // Verify user is requesting their own posts
+        if (viewerDid !== did) {
+            return res.status(403).json({ error: 'Forbidden: Can only view your own posts' });
+        }
+
+        const { getSupabase } = await import('../services/supabase.js');
+        const supabase = getSupabase();
+
+        const { data: posts, error } = await supabase
+            .from('posts')
+            .select('*')
+            .eq('author_did', did)
+            .order('created_at', { ascending: false });
+
+        if (error) throw new Error(`Failed to fetch user posts: ${error.message}`);
+
+        // Enrich with vote data and comment counts
+        const { VoteService } = await import('../services/vote.js');
+        const { CommentService } = await import('../services/comment.js');
+        const postIds = posts?.map(p => p.id) || [];
+
+        if (postIds.length > 0) {
+            const [votesMap, commentCounts] = await Promise.all([
+                VoteService.getVotesForPosts(postIds, viewerDid),
+                CommentService.getCommentCountsForPosts(postIds)
+            ]);
+
+            const enrichedPosts = posts?.map((post: any) => {
+                const voteData = votesMap[post.id] || { score: 0, userVote: null };
+                const commentCount = commentCounts[post.id] || 0;
+                return {
+                    ...post,
+                    score: voteData.score,
+                    user_vote: voteData.userVote,
+                    comment_count: commentCount
+                };
+            });
+
+            res.json(enrichedPosts);
+        } else {
+            res.json([]);
+        }
+    } catch (error: any) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// PUT /posts/:id - Update a post
+router.put('/:id', authenticateToken, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { title, content } = req.body;
+        const did = (req as AuthRequest).user?.sub;
+
+        if (!did) {
+            return res.status(401).json({ error: 'Unauthorized' });
+        }
+
+        const { getSupabase } = await import('../services/supabase.js');
+        const supabase = getSupabase();
+
+        // Check if post exists and belongs to user
+        const { data: post, error: fetchError } = await supabase
+            .from('posts')
+            .select('*')
+            .eq('id', id)
+            .single();
+
+        if (fetchError || !post) {
+            return res.status(404).json({ error: 'Post not found' });
+        }
+
+        if (post.author_did !== did) {
+            return res.status(403).json({ error: 'Forbidden: Can only edit your own posts' });
+        }
+
+        // Update post
+        const { data: updatedPost, error: updateError } = await supabase
+            .from('posts')
+            .update({ title, content, updated_at: new Date().toISOString() })
+            .eq('id', id)
+            .select()
+            .single();
+
+        if (updateError) throw new Error(`Failed to update post: ${updateError.message}`);
+
+        res.json(updatedPost);
+    } catch (error: any) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// DELETE /posts/:id - Delete a post
+router.delete('/:id', authenticateToken, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const did = (req as AuthRequest).user?.sub;
+
+        if (!did) {
+            return res.status(401).json({ error: 'Unauthorized' });
+        }
+
+        const { getSupabase } = await import('../services/supabase.js');
+        const supabase = getSupabase();
+
+        // Check if post exists and belongs to user
+        const { data: post, error: fetchError } = await supabase
+            .from('posts')
+            .select('*')
+            .eq('id', id)
+            .single();
+
+        if (fetchError || !post) {
+            return res.status(404).json({ error: 'Post not found' });
+        }
+
+        if (post.author_did !== did) {
+            return res.status(403).json({ error: 'Forbidden: Can only delete your own posts' });
+        }
+
+        // Delete post (this will cascade delete votes and comments if FK constraints are set)
+        const { error: deleteError } = await supabase
+            .from('posts')
+            .delete()
+            .eq('id', id);
+
+        if (deleteError) throw new Error(`Failed to delete post: ${deleteError.message}`);
+
+        res.json({ message: 'Post deleted successfully' });
+    } catch (error: any) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
 export const postRouter = router;
