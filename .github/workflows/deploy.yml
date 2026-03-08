@@ -36,8 +36,10 @@ concurrency:
   cancel-in-progress: true   # Drop stale runs if two pushes land in quick succession
 
 env:
-  # ghcr.io/<owner>/<repo> — all lowercase, as GHCR requires
-  IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/graphene_backend
+  # ghcr.io/<owner>/<repo> — GHCR requires all lowercase.
+  # We derive this in a step below using ${GITHUB_REPOSITORY_OWNER,,} (bash lowercase expansion).
+  # Do NOT use github.repository_owner directly — it preserves original casing (e.g. GrapFene).
+  IMAGE_NAME: ghcr.io/grapfene/graphene_backend
 
 jobs:
 
