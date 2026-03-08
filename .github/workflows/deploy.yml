@@ -1,0 +1,157 @@
+# =============================================================================
+# Graphene Backend — Continuous Deployment Pipeline
+# Repository: GrapFene/Graphene_Backend
+# =============================================================================
+#
+# JOB 1 — build-and-push
+#   Builds the Docker image from Dockerfile (repo root = backend/)
+#   Pushes to GitHub Container Registry (GHCR) tagged :latest + :sha-<short>
+#
+# JOB 2 — deploy-to-vm
+#   SSHs into the Azure VM
+#   Pulls the new image from GHCR
+#   Runs `docker compose up -d` (zero-downtime rolling restart)
+#
+# REQUIRED SECRETS  (Settings → Secrets and variables → Actions)
+# ──────────────────────────────────────────────────────────────
+#   GHCR_PAT             GitHub PAT with write:packages + read:packages scope
+#                        Used for BOTH the GHCR push (build job) and the pull
+#                        on the Azure VM (deploy job) — single unified token.
+#   VM_HOST              Azure VM public IP or domain
+#   VM_USER              Linux user on the VM (e.g. azureuser)
+#   VM_SSH_PRIVATE_KEY   Full content of the SSH private key
+#   VM_PROJECT_DIR       Absolute path to project dir on VM (e.g. /home/azureuser/graphene-infra)
+# =============================================================================
+
+name: Backend — Build & Deploy
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:   # Manual trigger from the Actions tab
+
+concurrency:
+  group: backend-deploy-${{ github.ref }}
+  cancel-in-progress: true   # Drop stale runs if two pushes land in quick succession
+
+env:
+  # ghcr.io/<owner>/<repo> — all lowercase, as GHCR requires
+  IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/graphene_backend
+
+jobs:
+
+  # ── Job 1: Build Docker image and push to GHCR ──────────────────────────────
+  build-and-push:
+    name: Build → GHCR
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write   # Needed to push to ghcr.io
+
+    outputs:
+      sha_tag: ${{ steps.sha.outputs.tag }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Short SHA for precise image tagging and rollback
+      - name: Compute short SHA
+        id: sha
+        run: echo "tag=sha-$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GHCR_PAT }}   # Unified PAT — write:packages + read:packages
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: .                    # Dockerfile is at the repo root (backend/)
+          file: ./Dockerfile
+          push: true
+          platforms: linux/amd64        # Azure VMs are amd64
+          tags: |
+            ${{ env.IMAGE_NAME }}:latest
+            ${{ env.IMAGE_NAME }}:${{ steps.sha.outputs.tag }}
+          labels: |
+            org.opencontainers.image.title=Graphene Backend
+            org.opencontainers.image.revision=${{ github.sha }}
+          # Cache layers in GHCR so subsequent builds reuse unchanged layers
+          cache-from: type=registry,ref=${{ env.IMAGE_NAME }}:cache
+          cache-to:   type=registry,ref=${{ env.IMAGE_NAME }}:cache,mode=max
+
+
+  # ── Job 2: Deploy to Azure VM ────────────────────────────────────────────────
+  deploy-to-vm:
+    name: Deploy → Azure VM
+    runs-on: ubuntu-latest
+    needs: build-and-push             # Only runs if build succeeded
+    environment: production           # Optional: add a manual approval gate in repo settings
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ── Step 1: SCP orchestrator files to the VM ────────────────────────────
+      # Copies docker-compose.yml and Caddyfile from the runner to the VM's
+      # project directory before the SSH step runs compose.
+      # This ensures the VM always has the latest routing and service config
+      # without a separate manual copy step.
+      - name: Copy orchestrator files to VM
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host:     ${{ secrets.VM_HOST }}
+          username: ${{ secrets.VM_USER }}
+          key:      ${{ secrets.VM_SSH_PRIVATE_KEY }}
+          port:     22
+          source:   "docker-compose.yml,Caddyfile"
+          target:   ${{ secrets.VM_PROJECT_DIR }}
+
+      # ── Step 2: Pull new image and restart services ─────────────────────────
+      - name: SSH deploy
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          IMAGE_TAG: ${{ env.IMAGE_NAME }}:${{ needs.build-and-push.outputs.sha_tag }}
+        with:
+          host:     ${{ secrets.VM_HOST }}
+          username: ${{ secrets.VM_USER }}
+          key:      ${{ secrets.VM_SSH_PRIVATE_KEY }}
+          port:     22
+          envs:     IMAGE_TAG
+          script: |
+            set -euo pipefail
+
+            # Authenticate to GHCR using the unified GHCR_PAT (read:packages).
+            # Same PAT used in the build job — no second token needed.
+            echo "${{ secrets.GHCR_PAT }}" | \
+              docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+            # Pull the exact SHA-tagged image that was just built.
+            docker pull "$IMAGE_TAG"
+
+            cd "${{ secrets.VM_PROJECT_DIR }}"
+
+            # Write an ephemeral override so compose uses this exact image tag.
+            # The main .env holds all secrets and is never written by CI.
+            echo "GHCR_IMAGE=$IMAGE_TAG" > .env.deploy
+
+            # Apply any compose/Caddy routing changes and restart the backend.
+            # --remove-orphans cleans up containers for deleted services.
+            docker compose \
+              --env-file .env \
+              --env-file .env.deploy \
+              up -d --pull always --remove-orphans
+
+            # Free disk space — prune dangling images from previous builds.
+            docker image prune -f
+
+            echo "✅ Deployed $IMAGE_TAG"
+            docker compose ps

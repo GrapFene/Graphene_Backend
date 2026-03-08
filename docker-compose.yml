@@ -1,0 +1,139 @@
+# =============================================================================
+# Graphene — All-in-One Azure VM Docker Compose Orchestrator
+# Repository: GrapFene/Graphene_Backend
+# =============================================================================
+#
+# Services
+# ────────
+#  backend-app   Node.js API — built from the local Dockerfile
+#  frontend-app  Pre-built React/Vite image — pulled from GHCR
+#  caddy         Reverse proxy + automatic TLS — sole host-port owner
+#
+# Usage on the Azure VM
+# ─────────────────────
+#  1. Populate .env (copy from .env.example and fill every value)
+#  2. docker compose up -d --remove-orphans
+#
+# Network isolation
+# ─────────────────
+#  All services share the internal `graphene-net` bridge.
+#  backend-app and frontend-app bind NO host ports — all ingress flows
+#  through Caddy only.
+# =============================================================================
+
+services:
+
+  # ── 1. Backend API ──────────────────────────────────────────────────────────
+  backend-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ghcr.io/grapfene/graphene_backend:latest
+
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+
+      # ── Supabase / Database ──────────────────────────────────────────────
+      SUPABASE_URL:         ${SUPABASE_URL}
+      SUPABASE_SERVICE_KEY: ${SUPABASE_SERVICE_KEY}
+
+      # ── Auth / JWT ───────────────────────────────────────────────────────
+      JWT_SECRET: ${JWT_SECRET}
+
+      # ── ActivityPub / Federation ─────────────────────────────────────────
+      FEDERATION_PRIVATE_KEY: ${FEDERATION_PRIVATE_KEY}
+      INSTANCE_DOMAIN:        ${INSTANCE_DOMAIN}
+
+    # Internal only — Caddy reaches this on port 3000 over graphene-net.
+    # No host port binding, ever.
+    expose:
+      - "3000"
+
+    networks:
+      - graphene-net
+
+    restart: unless-stopped
+
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://localhost:3000/health', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))\""]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+
+  # ── 2. Frontend SPA ─────────────────────────────────────────────────────────
+  frontend-app:
+    # The CI/CD pipeline in Graphene_Frontend pushes this image to GHCR.
+    # Set FRONTEND_GHCR_IMAGE in .env, e.g.:
+    #   FRONTEND_GHCR_IMAGE=ghcr.io/grapfene/graphene_frontend:latest
+    image: ${FRONTEND_GHCR_IMAGE}
+
+    # Internal only — Caddy proxies to port 80 over graphene-net.
+    expose:
+      - "80"
+
+    networks:
+      - graphene-net
+
+    restart: unless-stopped
+
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:80/ > /dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+
+  # ── 3. Caddy Reverse Proxy ──────────────────────────────────────────────────
+  caddy:
+    image: caddy:2-alpine
+
+    # THE ONLY service that binds ports to the Azure VM host.
+    # Port 80  → HTTP (Caddy auto-redirects to HTTPS and handles ACME challenges)
+    # Port 443 → HTTPS (TLS terminated here; backends receive plain HTTP)
+    ports:
+      - "80:80"
+      - "443:443"
+
+    environment:
+      # Injected into the Caddyfile via {$INSTANCE_DOMAIN} placeholder at startup.
+      # Single IP/hostname covers both API (/api/*) and frontend (/*) via path routing.
+      INSTANCE_DOMAIN: ${INSTANCE_DOMAIN}
+
+    volumes:
+      # The Caddyfile is deployed to the VM by CI alongside this file.
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+
+      # Persist ACME certs and Caddy state across restarts.
+      # Without these, Caddy re-provisions certs on every `up` and risks
+      # hitting Let's Encrypt rate limits (5 certs / domain / week).
+      - caddy_data:/data
+      - caddy_config:/config
+
+    networks:
+      - graphene-net
+
+    restart: unless-stopped
+
+    # Caddy must start after the apps so it can health-probe its upstreams.
+    depends_on:
+      - backend-app
+      - frontend-app
+
+
+# ── Volumes ──────────────────────────────────────────────────────────────────
+# Named volumes survive `docker compose down` (but not `--volumes`).
+volumes:
+  caddy_data:
+    driver: local
+  caddy_config:
+    driver: local
+
+
+# ── Networks ─────────────────────────────────────────────────────────────────
+networks:
+  graphene-net:
+    driver: bridge
