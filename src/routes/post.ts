@@ -2,6 +2,7 @@ import express, { Request } from 'express';
 import { PostService } from '../services/post.js';
 import { Post, CreatePostDto } from '../types/post.js'; // Import DTO
 import { AuthRequest, authenticateToken } from '../middleware/auth.js'; // Import middleware
+import { FederationDispatcher } from '../lib/federation/dispatcher.js';
 
 const router = express.Router();
 
@@ -78,6 +79,14 @@ router.post('/', authenticateToken, async (req, res) => {
         }
 
         const newPost = await PostService.createPost(did, { title, content, subreddit, media_url, media_type });
+
+        // Fire-and-forget federation broadcast.
+        // We do NOT await this — local users should never be blocked by
+        // federation latency. Failed deliveries are queued for retry internally.
+        FederationDispatcher.broadcastPost(newPost).catch((err) =>
+            console.error('[post route] Federation broadcast failed:', err)
+        );
+
         res.status(201).json(newPost);
     } catch (error: any) {
         console.error('Error creating post:', error);
@@ -241,6 +250,11 @@ router.delete('/:id', authenticateToken, async (req, res) => {
             .eq('id', id);
 
         if (deleteError) throw new Error(`Failed to delete post: ${deleteError.message}`);
+
+        // Fire-and-forget: tell peer instances to remove their copy.
+        FederationDispatcher.broadcastDelete({ post_id: id, author_did: did }).catch((err) =>
+            console.error('[post route] Federation delete broadcast failed:', err)
+        );
 
         res.json({ message: 'Post deleted successfully' });
     } catch (error: any) {
