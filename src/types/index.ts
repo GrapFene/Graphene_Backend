@@ -4,6 +4,7 @@ export * from './moderation.js';
 export * from './moderation-api.js';
 export * from './recovery.js';
 export * from './retry.js';
+export * from './federation.js';
 
 export interface RegisterRequest {
     username: string;
