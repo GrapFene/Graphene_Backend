@@ -10,7 +10,7 @@ const router = express.Router();
 // POST /votes
 router.post('/', async (req, res) => {
     try {
-        const { did, postId, voteType } = req.body;
+        const { did, postId, voteType, peer_domain: bodyPeerDomain } = req.body;
 
         if (!did || !postId || voteType === undefined) {
             return res.status(400).json({ error: 'DID, postId, and voteType are required' });
@@ -24,11 +24,13 @@ router.post('/', async (req, res) => {
             .eq('id', postId)
             .maybeSingle();
 
-        // Determine peer domain from source_instance_url if present
+        // Determine peer domain: prefer DB lookup, fall back to what frontend sent
         const peerDomain = post?.peer_domain ||
             (post?.source_instance_url
                 ? post.source_instance_url.replace(/^https?:\/\//, '')
-                : null);
+                : null) ||
+            bodyPeerDomain ||
+            null;
 
         if (peerDomain && peerDomain !== config.federation.instanceDomain) {
             // This post lives on a peer — forward the vote there

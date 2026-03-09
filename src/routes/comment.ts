@@ -9,7 +9,7 @@ const router = express.Router();
 // POST /comments - Create a comment
 router.post('/', async (req, res) => {
     try {
-        const { did, postId, content, parentId } = req.body;
+        const { did, postId, content, parentId, peer_domain: bodyPeerDomain } = req.body;
 
         // Check if this post belongs to a peer instance
         const supabase = getSupabase();
@@ -19,10 +19,13 @@ router.post('/', async (req, res) => {
             .eq('id', postId)
             .maybeSingle();
 
+        // Determine peer domain: prefer DB lookup, fall back to what frontend sent
         const peerDomain = post?.peer_domain ||
             (post?.source_instance_url
                 ? post.source_instance_url.replace(/^https?:\/\//, '')
-                : null);
+                : null) ||
+            bodyPeerDomain ||
+            null;
 
         if (peerDomain && peerDomain !== config.federation.instanceDomain) {
             // Post lives on peer — check peer is online
