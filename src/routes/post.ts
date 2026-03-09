@@ -3,6 +3,9 @@ import { PostService } from '../services/post.js';
 import { Post, CreatePostDto } from '../types/post.js'; // Import DTO
 import { AuthRequest, authenticateToken } from '../middleware/auth.js'; // Import middleware
 import { FederationDispatcher } from '../lib/federation/dispatcher.js';
+import { CommunityService } from '../services/community.js';
+import { signPayload } from '../lib/federation/crypto.js';
+import { config } from '../config/index.js';
 
 const router = express.Router();
 
@@ -76,6 +79,53 @@ router.post('/', authenticateToken, async (req, res) => {
 
         if (!did) {
             return res.status(401).json({ error: 'Unauthorized' });
+        }
+
+        // Check if the target community is hosted on a peer instance.
+        // If so, forward the create request to that peer instead of saving locally.
+        if (subreddit) {
+            const community = await CommunityService.getCommunity(subreddit);
+            if (community?.is_federated && community.home_instance_domain) {
+                const peerDomain = community.home_instance_domain;
+                const peerUrl = `https://${peerDomain}/api/posts`;
+
+                // Sign the forwarded payload with this instance's federation key
+                // so the peer can verify it came from a trusted Graphene node.
+                const forwardPayload = { title, content, subreddit, media_url, media_type, author_did: did };
+                const signature = await signPayload(forwardPayload);
+
+                try {
+                    const peerRes = await fetch(peerUrl, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-Federation-Forward': 'true',
+                            'X-Federation-Domain': config.federation.instanceDomain,
+                            'X-Federation-Signature': signature,
+                            'X-Author-Did': did,
+                        },
+                        body: JSON.stringify(forwardPayload),
+                        signal: AbortSignal.timeout(10_000),
+                    });
+
+                    const peerBody = await peerRes.json() as Record<string, unknown>;
+
+                    if (!peerRes.ok) {
+                        console.error(`[post route] Peer ${peerDomain} rejected post:`, peerBody);
+                        return res.status(502).json({
+                            error: `Peer server rejected post: ${peerBody?.error ?? peerRes.statusText}`,
+                        });
+                    }
+
+                    // Peer saved it — return their response (includes peer-assigned ID etc.)
+                    return res.status(201).json(peerBody);
+                } catch (peerErr: any) {
+                    console.error(`[post route] Could not reach peer ${peerDomain}:`, peerErr.message);
+                    return res.status(502).json({
+                        error: `Could not reach peer server (${peerDomain}). Is it online?`,
+                    });
+                }
+            }
         }
 
         const newPost = await PostService.createPost(did, { title, content, subreddit, media_url, media_type });

@@ -23,6 +23,8 @@ export interface CreateCommunityDto {
     topic?: string;
     is_private?: boolean;
     rules?: CommunityRules;
+    is_federated?: boolean;
+    home_instance_domain?: string;
 }
 
 export interface UpdateCommunityRulesDto {

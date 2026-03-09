@@ -6,13 +6,16 @@ const router = express.Router();
 // POST /communities
 router.post('/', async (req, res) => {
     try {
-        const { did, name, description, topic, is_private, rules } = req.body;
+        const { did, name, description, topic, is_private, rules, is_federated, home_instance_domain } = req.body;
 
         if (!did || !name) {
             return res.status(400).json({ error: 'DID and name are required' });
         }
 
-        const community = await CommunityService.createCommunity(did, { name, description, topic, is_private, rules });
+        const community = await CommunityService.createCommunity(did, {
+            name, description, topic, is_private, rules,
+            is_federated, home_instance_domain,
+        });
         res.status(201).json(community);
     } catch (error: any) {
         res.status(500).json({ error: error.message });

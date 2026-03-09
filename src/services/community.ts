@@ -4,7 +4,7 @@ import { Community, CreateCommunityDto, CommunityRules, UpdateCommunityRulesDto 
 export class CommunityService {
     private static tableName = 'communities';
 
-    static async createCommunity(did: string, { name, description, topic, is_private, rules }: CreateCommunityDto): Promise<Community> {
+    static async createCommunity(did: string, { name, description, topic, is_private, rules, is_federated, home_instance_domain }: CreateCommunityDto): Promise<Community> {
         const supabase = getSupabase();
 
         // Check if community exists
@@ -26,7 +26,9 @@ export class CommunityService {
                 description,
                 topic,
                 is_private: is_private ?? false,
-                rules: rules || {}
+                rules: rules || {},
+                is_federated: is_federated ?? false,
+                home_instance_domain: home_instance_domain ?? null,
             })
             .select()
             .single();
