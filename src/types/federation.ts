@@ -8,7 +8,7 @@
 // so receivers can verify content integrity independently of transport headers.
 // ---------------------------------------------------------------------------
 
-export type FederationActivityType = 'Create' | 'Update' | 'Delete' | 'Vote';
+export type FederationActivityType = 'Create' | 'Update' | 'Delete' | 'Vote' | 'Announce';
 
 export interface FederationEnvelope {
     /** Activity type — drives the handler branch in the inbox router. */
@@ -23,7 +23,7 @@ export interface FederationEnvelope {
     timestamp: string;
 
     /** The raw activity object (FederatedPost, FederatedVote, etc.) */
-    payload: FederatedPost | FederatedVote | FederatedDelete;
+    payload: FederatedPost | FederatedVote | FederatedDelete | FederatedAnnounce;
 
     /** secp256k1 signature over canonical JSON of `payload`.
      *  Produced by the sending instance's INSTANCE_PRIVATE_KEY. */
@@ -61,6 +61,23 @@ export interface FederatedDelete {
     post_id: string;
     author_did: string;
     source_instance_url: string;
+}
+
+// ---------------------------------------------------------------------------
+// Announce — sent by a peer to introduce themselves and optionally
+// register a federated community they host.
+// ---------------------------------------------------------------------------
+export interface FederatedAnnounce {
+    /** The bare domain of the announcing instance, e.g. "203.0.113.5" */
+    instance_domain: string;
+    /** Human-readable name of the instance. */
+    instance_name?: string;
+    /** Optional: community this instance wants to share with us. */
+    community?: {
+        name: string;
+        description?: string;
+        topic?: string;
+    };
 }
 
 // ---------------------------------------------------------------------------

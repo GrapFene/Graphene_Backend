@@ -31,6 +31,7 @@ import type {
     FederatedPost,
     FederatedVote,
     FederatedDelete,
+    FederatedAnnounce,
     InstanceActor,
     InboxProcessResult,
 } from '../types/federation.js';
@@ -185,6 +186,62 @@ async function handleDelete(payload: FederatedDelete): Promise<InboxProcessResul
     return { accepted: true };
 }
 
+/**
+ * Handle an `Announce` activity — a peer instance introduces itself.
+ * Upserts the peer into known_peers and optionally registers a community
+ * they host as a federated community on our instance.
+ */
+async function handleAnnounce(payload: FederatedAnnounce, actorDomain: string, peerAddress: string): Promise<InboxProcessResult> {
+    const supabase = getSupabase();
+
+    // Upsert the peer (same as normal inbox path — belt-and-suspenders)
+    const actorUrl = `http://${actorDomain}/api/federation/actor`;
+    await supabase.from('known_peers').upsert(
+        {
+            domain: actorDomain,
+            actor_url: actorUrl,
+            public_address: peerAddress,
+            last_seen_at: new Date().toISOString(),
+            is_active: true,
+        },
+        { onConflict: 'domain' }
+    );
+
+    console.log(`[inbox] 🤝 Announce received from ${actorDomain}`);
+
+    // If they declared a community, register it as federated on our instance
+    if (payload.community?.name) {
+        const { name, description, topic } = payload.community;
+
+        const { data: existing } = await supabase
+            .from('communities')
+            .select('id')
+            .eq('name', name)
+            .maybeSingle();
+
+        if (!existing) {
+            // Create a system-owned placeholder identity for the remote owner if needed
+            const remoteDid = `did:graphene:instance:${actorDomain}`;
+            await supabase
+                .from('identities')
+                .upsert({ did: remoteDid, username: `instance:${actorDomain}` }, { onConflict: 'did', ignoreDuplicates: true });
+
+            await supabase.from('communities').insert({
+                name,
+                description: description ?? `Federated community from ${actorDomain}`,
+                topic: topic ?? null,
+                owner_did: remoteDid,
+                is_federated: true,
+                home_instance_domain: actorDomain,
+            });
+
+            console.log(`[inbox] 🌐 Registered federated community '${name}' from ${actorDomain}`);
+        }
+    }
+
+    return { accepted: true, reason: `Peer ${actorDomain} registered` };
+}
+
 // ---------------------------------------------------------------------------
 // POST /federation/inbox
 // ---------------------------------------------------------------------------
@@ -245,7 +302,29 @@ router.post('/inbox', async (req: Request, res: Response) => {
     }
 
     // ------------------------------------------------------------------
-    // 5. Dispatch to the correct handler based on activity type
+    // 5. Auto-register the peer in known_peers (upsert on every valid contact)
+    //    This builds the discovery list automatically — no manual check-in needed.
+    // ------------------------------------------------------------------
+    try {
+        const supabase = getSupabase();
+        const actorUrl = `https://${actor_domain}/federation/actor`;
+        await supabase.from('known_peers').upsert(
+            {
+                domain: actor_domain,
+                actor_url: actorUrl,
+                public_address: peerAddress,
+                last_seen_at: new Date().toISOString(),
+                is_active: true,
+            },
+            { onConflict: 'domain' }
+        );
+    } catch (peerErr: any) {
+        // Non-fatal — peer registration failure must not block the actual activity.
+        console.warn('[inbox] ⚠️ Failed to upsert known_peer:', peerErr.message);
+    }
+
+    // ------------------------------------------------------------------
+    // 6. Dispatch to the correct handler based on activity type
     // ------------------------------------------------------------------
     let result: InboxProcessResult;
 
@@ -260,6 +339,9 @@ router.post('/inbox', async (req: Request, res: Response) => {
             case 'Delete':
                 result = await handleDelete(payload as FederatedDelete);
                 break;
+            case 'Announce':
+                result = await handleAnnounce(payload as unknown as FederatedAnnounce, actor_domain, peerAddress!);
+                break;
             default:
                 return res.status(422).json({ error: `Unsupported activity type: ${type}` });
         }
@@ -269,7 +351,7 @@ router.post('/inbox', async (req: Request, res: Response) => {
     }
 
     // ------------------------------------------------------------------
-    // 6. Return result to sender
+    // 7. Return result to sender
     // ------------------------------------------------------------------
     if (!result.accepted) {
         console.warn(`[inbox] ❌ ${type} from ${actor_domain} rejected: ${result.reason}`);
@@ -277,6 +359,55 @@ router.post('/inbox', async (req: Request, res: Response) => {
     }
 
     return res.status(200).json({ success: true, reason: result.reason });
+});
+
+// ---------------------------------------------------------------------------
+// POST /federation/announce
+// A self-hosted Graphene instance calls this on ITSELF to trigger an outbound
+// Announce handshake to the main network.  It signs a FederationEnvelope and
+// POSTs it to the target server's inbox.
+//
+// Request body: { target_domain: string, community?: { name, description, topic } }
+// ---------------------------------------------------------------------------
+router.post('/announce', async (req: Request, res: Response) => {
+    const { target_domain, community } = req.body as {
+        target_domain?: string;
+        community?: { name: string; description?: string; topic?: string };
+    };
+
+    if (!target_domain || typeof target_domain !== 'string') {
+        return res.status(400).json({ error: 'target_domain is required' });
+    }
+
+    try {
+        const { initiateOutgoingSync } = await import('../services/federation.js');
+        await initiateOutgoingSync(target_domain, 'announce', { community: community ?? null });
+        return res.json({ success: true, message: `Announce sent to ${target_domain}` });
+    } catch (err: any) {
+        console.error('[announce] Failed to send Announce:', err.message);
+        return res.status(500).json({ error: err.message });
+    }
+});
+
+// ---------------------------------------------------------------------------
+// GET /federation/peers
+// Returns the list of all known peer instances that have successfully
+// sent us a valid signed envelope.  Acts as our public discovery list.
+// ---------------------------------------------------------------------------
+router.get('/peers', async (_req: Request, res: Response) => {
+    const supabase = getSupabase();
+    const { data, error } = await supabase
+        .from('known_peers')
+        .select('domain, actor_url, public_address, last_seen_at, first_seen_at, is_active')
+        .eq('is_active', true)
+        .order('last_seen_at', { ascending: false });
+
+    if (error) {
+        console.error('[peers] DB error:', error.message);
+        return res.status(500).json({ error: 'Failed to fetch known peers' });
+    }
+
+    return res.json({ peers: data ?? [], count: (data ?? []).length });
 });
 
 export { router as federationRouter };

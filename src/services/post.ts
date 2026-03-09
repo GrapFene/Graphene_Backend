@@ -1,6 +1,8 @@
 import { getSupabase } from './supabase.js';
 import { Post, CreatePostDto } from '../types/post.js';
 import { CommunityService } from './community.js';
+import { initiateOutgoingSync } from './federation.js';
+import { config } from '../config/index.js';
 
 export class PostService {
     private static tableName = 'posts';
@@ -27,7 +29,7 @@ export class PostService {
                 media_url,
                 media_type
             })
-            .select() // Return the created post
+            .select()
             .single();
 
         if (error) {
@@ -35,7 +37,39 @@ export class PostService {
             throw new Error(`Failed to create post: ${error.message}`);
         }
 
-        return data as Post;
+        const post = data as Post;
+
+        // Broadcast to all known active peers (fire-and-forget — never blocks the response).
+        // Pull peer list from DB so it stays up-to-date without a server restart.
+        setImmediate(async () => {
+            try {
+                const { data: peers } = await supabase
+                    .from('known_peers')
+                    .select('domain')
+                    .eq('is_active', true);
+
+                if (!peers || peers.length === 0) return;
+
+                const knownPeers = config.federation.knownPeers; // static list from env
+                const dbPeers = peers.map((p: any) => p.domain);
+                const allPeers = Array.from(new Set([...knownPeers, ...dbPeers]));
+
+                await Promise.allSettled(
+                    allPeers.map(domain =>
+                        initiateOutgoingSync(domain, 'post', {
+                            post: {
+                                ...post,
+                                source_instance_url: config.federation.instanceDomain,
+                            },
+                        })
+                    )
+                );
+            } catch (broadcastErr: any) {
+                console.warn('[post] broadcast error:', broadcastErr.message);
+            }
+        });
+
+        return post;
     }
 
     static async getPostById(id: string): Promise<Post | null> {

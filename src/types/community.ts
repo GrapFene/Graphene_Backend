@@ -7,6 +7,8 @@ export interface Community {
     is_private: boolean;
     rules: CommunityRules;
     created_at: string;
+    is_federated: boolean;
+    home_instance_domain?: string | null;
 }
 
 export interface CommunityRules {

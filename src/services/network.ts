@@ -1,26 +1,46 @@
 // =============================================================================
-// Graphene: Network Service
+// Graphene: Network Service — outbound federation HTTP calls
 // =============================================================================
 
+import { config } from '../config/index.js';
+
 /**
- * Send an outgoing synchronization request to a peer Graphene instance.
+ * Send a signed FederationEnvelope to a peer instance's inbox.
+ * The envelope must already be signed by the caller (initiateOutgoingSync).
  */
 export async function sendFederationSync(
     targetInstanceUrl: string,
     syncType: string,
     payload: any
 ): Promise<void> {
-    console.log(`📡 Sending ${syncType} sync to ${targetInstanceUrl}...`);
+    const targetDomain = targetInstanceUrl.replace(/^https?:\/\//, '').replace(/\/$/, '');
+    const inboxUrl = `http://${targetDomain}/api/federation/inbox`;
 
-    // In a real implementation, this would be an axios/fetch post request
-    // to targetInstanceUrl + '/federation/sync' or similar.
+    console.log(`📡 [network] Sending ${syncType} to ${inboxUrl}`);
 
-    // For demonstration/testing:
-    // Simulate network failure if URL contains 'fail'
-    if (targetInstanceUrl.includes('fail')) {
-        throw new Error('Network timeout: Peer instance unreachable');
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), config.federation.outboundTimeoutMs);
+
+    try {
+        const response = await fetch(inboxUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+            signal: controller.signal,
+        });
+
+        if (!response.ok) {
+            const body = await response.text().catch(() => '');
+            throw new Error(`Peer returned ${response.status}: ${body}`);
+        }
+
+        console.log(`✅ [network] ${syncType} accepted by ${targetDomain}`);
+    } catch (err: any) {
+        if (err.name === 'AbortError') {
+            throw new Error(`Network timeout after ${config.federation.outboundTimeoutMs}ms reaching ${targetDomain}`);
+        }
+        throw err;
+    } finally {
+        clearTimeout(timeout);
     }
-
-    // Simulate success
-    console.log(`✅ Outgoing ${syncType} sync successful.`);
 }
