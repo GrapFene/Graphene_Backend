@@ -88,10 +88,45 @@ router.get('/post/:postId', async (req, res) => {
 router.post('/:id/vote', async (req, res) => {
     try {
         const { id } = req.params;
-        const { did, voteType } = req.body;
+        const { did, voteType, peer_domain: bodyPeerDomain } = req.body;
 
         if (!did || !voteType) {
             return res.status(400).json({ error: 'DID and voteType are required' });
+        }
+
+        // If a peer_domain is provided, forward the comment vote to that peer
+        if (bodyPeerDomain && bodyPeerDomain !== config.federation.instanceDomain) {
+            const supabase = getSupabase();
+            const { data: peer } = await supabase
+                .from('known_peers')
+                .select('is_active')
+                .eq('domain', bodyPeerDomain)
+                .maybeSingle();
+
+            if (!peer?.is_active) {
+                return res.status(503).json({ error: `Peer instance (${bodyPeerDomain}) is currently offline` });
+            }
+
+            const { signPayload } = await import('../lib/federation/crypto.js');
+            const forwardPayload = { did, voteType, commentId: id };
+            const signature = await signPayload(forwardPayload);
+            const peerRes = await fetch(`https://${bodyPeerDomain}/api/comments/${id}/vote`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Federation-Forward': 'true',
+                    'X-Federation-Domain': config.federation.instanceDomain,
+                    'X-Federation-Signature': signature,
+                    'X-Author-Did': did,
+                },
+                body: JSON.stringify({ did, voteType }),
+                signal: AbortSignal.timeout(8_000),
+            });
+
+            if (!peerRes.ok) {
+                return res.status(502).json({ error: 'Peer rejected the comment vote' });
+            }
+            return res.json(await peerRes.json());
         }
 
         await CommentService.voteComment(did, id, { voteType });
