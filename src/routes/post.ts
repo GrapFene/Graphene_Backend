@@ -15,9 +15,44 @@ router.get('/:id', async (req, res) => {
         const { id } = req.params;
         const viewerDid = req.query.viewerDid as string;
 
-        // Fetch Post
-        const post = await PostService.getPostById(id);
+        // Try local DB first
+        let post = await PostService.getPostById(id);
+
+        // If not found locally, check all active peers
         if (!post) {
+            const { getSupabase } = await import('../services/supabase.js');
+            const supabase = getSupabase();
+            const { data: activePeers } = await supabase
+                .from('known_peers')
+                .select('domain')
+                .eq('is_active', true);
+
+            if (activePeers && activePeers.length > 0) {
+                for (const peer of activePeers as { domain: string }[]) {
+                    try {
+                        const url = `https://${peer.domain}/api/posts/${id}${viewerDid ? `?viewerDid=${viewerDid}` : ''}`;
+                        const peerRes = await fetch(url, {
+                            signal: AbortSignal.timeout(5_000),
+                            headers: {
+                                'Accept': 'application/json',
+                                'ngrok-skip-browser-warning': 'true',
+                            },
+                        });
+                        if (peerRes.ok) {
+                            const peerPost = await peerRes.json() as any;
+                            // Tag it so the frontend knows it's from a peer
+                            return res.json({
+                                ...peerPost,
+                                peer_domain: peer.domain,
+                                source_instance_url: `https://${peer.domain}`,
+                                is_federated_post: true,
+                            });
+                        }
+                    } catch {
+                        // Peer unreachable — try next
+                    }
+                }
+            }
             return res.status(404).json({ error: 'Post not found' });
         }
 
