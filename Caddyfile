@@ -1,38 +1,22 @@
-# =============================================================================
-# Graphene — Caddyfile (IP-Only Mode)
-# =============================================================================
-# This configuration is optimized for a single IP address deployment.
-# It uses path-based routing to distinguish between API and UI traffic.
-#
-# Required env var (set in docker-compose.yml → caddy service → environment):
-#   INSTANCE_DOMAIN — the VM's public IP or hostname (no protocol prefix)
-# =============================================================================
+graphene.myvnc.com {
 
-http://{$INSTANCE_DOMAIN} {
-
-    # ── API (Node.js backend) ────────────────────────────────────────────────
-    # Strip /api prefix before proxying: server.ts mounts routes at /posts,
-    # /auth, etc. — NOT under /api — so /api/posts must become /posts.
     handle /api/* {
         uri strip_prefix /api
         reverse_proxy backend-app:3000 {
             header_up X-Real-IP        {remote_host}
             header_up X-Forwarded-For  {remote_host}
-            header_up X-Forwarded-Proto http
+            header_up X-Forwarded-Proto https
         }
     }
 
-    # ── Frontend SPA (React/Vite) ────────────────────────────────────────────
-    # This catches everything else that does not start with /api.
     handle {
         reverse_proxy frontend-app:80 {
             header_up X-Real-IP        {remote_host}
             header_up X-Forwarded-For  {remote_host}
-            header_up X-Forwarded-Proto http
+            header_up X-Forwarded-Proto https
         }
     }
 
-    # ── Logging ──────────────────────────────────────────────────────────────
     log {
         output stdout
         format json
