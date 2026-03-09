@@ -8,7 +8,7 @@
 // so receivers can verify content integrity independently of transport headers.
 // ---------------------------------------------------------------------------
 
-export type FederationActivityType = 'Create' | 'Update' | 'Delete' | 'Vote' | 'Announce';
+export type FederationActivityType = 'Create' | 'Update' | 'Delete' | 'Vote' | 'Announce' | 'Block' | 'Unblock';
 
 export interface FederationEnvelope {
     /** Activity type — drives the handler branch in the inbox router. */
@@ -23,7 +23,7 @@ export interface FederationEnvelope {
     timestamp: string;
 
     /** The raw activity object (FederatedPost, FederatedVote, etc.) */
-    payload: FederatedPost | FederatedVote | FederatedDelete | FederatedAnnounce;
+    payload: FederatedPost | FederatedVote | FederatedDelete | FederatedAnnounce | FederatedBlock;
 
     /** secp256k1 signature over canonical JSON of `payload`.
      *  Produced by the sending instance's INSTANCE_PRIVATE_KEY. */
@@ -60,6 +60,17 @@ export interface FederatedDelete {
     /** UUID of the post being deleted. */
     post_id: string;
     author_did: string;
+    source_instance_url: string;
+}
+
+// ---------------------------------------------------------------------------
+// Block / Unblock — propagated to peers so they enforce the same block
+// ---------------------------------------------------------------------------
+export interface FederatedBlock {
+    /** DID of the user who blocked */
+    blocker_did: string;
+    /** Community name being blocked/unblocked */
+    community_name: string;
     source_instance_url: string;
 }
 

@@ -32,6 +32,7 @@ import type {
     FederatedVote,
     FederatedDelete,
     FederatedAnnounce,
+    FederatedBlock,
     InstanceActor,
     InboxProcessResult,
 } from '../types/federation.js';
@@ -183,6 +184,35 @@ async function handleDelete(payload: FederatedDelete): Promise<InboxProcessResul
     }
 
     console.log(`[inbox] 🗑 Federated post ${payload.post_id} deleted per request from ${payload.source_instance_url}`);
+    return { accepted: true };
+}
+
+/**
+ * Handle a `Block` or `Unblock` activity — apply/remove the community block
+ * for the specified user on this instance too.
+ */
+async function handleBlock(payload: FederatedBlock, action: 'Block' | 'Unblock'): Promise<InboxProcessResult> {
+    const supabase = getSupabase();
+
+    if (action === 'Block') {
+        const { error } = await supabase
+            .from('community_blocks')
+            .upsert(
+                { blocker_did: payload.blocker_did, community_name: payload.community_name },
+                { onConflict: 'blocker_did,community_name', ignoreDuplicates: true }
+            );
+        if (error) return { accepted: false, reason: `Block failed: ${error.message}` };
+        console.log(`[inbox] 🚫 Block applied: ${payload.blocker_did} blocked ${payload.community_name}`);
+    } else {
+        const { error } = await supabase
+            .from('community_blocks')
+            .delete()
+            .eq('blocker_did', payload.blocker_did)
+            .eq('community_name', payload.community_name);
+        if (error) return { accepted: false, reason: `Unblock failed: ${error.message}` };
+        console.log(`[inbox] ✅ Unblock applied: ${payload.blocker_did} unblocked ${payload.community_name}`);
+    }
+
     return { accepted: true };
 }
 
@@ -341,6 +371,10 @@ router.post('/inbox', async (req: Request, res: Response) => {
                 break;
             case 'Announce':
                 result = await handleAnnounce(payload as unknown as FederatedAnnounce, actor_domain, peerAddress!);
+                break;
+            case 'Block':
+            case 'Unblock':
+                result = await handleBlock(payload as FederatedBlock, type);
                 break;
             default:
                 return res.status(422).json({ error: `Unsupported activity type: ${type}` });

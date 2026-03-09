@@ -26,13 +26,14 @@ import type {
     FederatedPost,
     FederatedVote,
     FederatedDelete,
+    FederatedBlock,
 } from '../../types/federation.js';
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-type ActivityPayload = FederatedPost | FederatedVote | FederatedDelete;
+type ActivityPayload = FederatedPost | FederatedVote | FederatedDelete | FederatedBlock;
 
 interface DispatchResult {
     domain: string;
@@ -253,5 +254,27 @@ export class FederationDispatcher {
 
         const envelope = await this.buildEnvelope('Delete', payload);
         await this.fanOut(targetDomains, envelope, 'post:delete');
+    }
+
+    /**
+     * Broadcast a block or unblock action to peer instances so they
+     * enforce the same community block for this user.
+     */
+    static async broadcastBlock(
+        blockerDid: string,
+        communityName: string,
+        action: 'Block' | 'Unblock',
+        targetDomains: string[] = config.federation.knownPeers
+    ): Promise<void> {
+        if (targetDomains.length === 0) return;
+
+        const payload: FederatedBlock = {
+            blocker_did: blockerDid,
+            community_name: communityName,
+            source_instance_url: config.federation.instanceDomain,
+        };
+
+        const envelope = await this.buildEnvelope(action, payload);
+        await this.fanOut(targetDomains, envelope, `community:${action.toLowerCase()}`);
     }
 }

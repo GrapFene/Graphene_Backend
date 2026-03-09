@@ -17,6 +17,7 @@ import {
     uploadRouter,
 } from './routes/index.js';
 import { startRetryWorker } from './services/retry.js';
+import { startPeerHealthMonitor } from './services/peer-health.js';
 
 // Validate environment before starting
 validateConfig();
@@ -49,6 +50,9 @@ app.get('/health', (_, res) => {
 
 // Start retry worker
 startRetryWorker();
+
+// Start peer health monitor
+startPeerHealthMonitor();
 
 // Start server
 app.listen(config.server.port, () => {

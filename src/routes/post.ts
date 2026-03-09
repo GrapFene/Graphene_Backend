@@ -62,7 +62,70 @@ router.get('/', async (req, res) => {
         if (subreddit) {
             posts = await PostService.getPostsBySubreddit(subreddit, viewerDid);
         } else {
-            posts = await PostService.getFeed(sort, viewerDid);
+            // Global feed: merge local posts + posts from all active peers
+            const localPosts = await PostService.getFeed(sort, viewerDid);
+
+            // Fetch active peers from DB
+            const { getSupabase } = await import('../services/supabase.js');
+            const supabase = getSupabase();
+            const { data: activePeers } = await supabase
+                .from('known_peers')
+                .select('domain')
+                .eq('is_active', true);
+
+            if (!activePeers || activePeers.length === 0) {
+                posts = localPosts;
+            } else {
+                // Fetch posts from each active peer (fire all in parallel).
+                // If a peer is unreachable RIGHT NOW, we get [] and mark it offline.
+                const peerPostArrays = await Promise.allSettled(
+                    activePeers.map(async (peer: { domain: string }) => {
+                        const url = `https://${peer.domain}/api/posts${viewerDid ? `?viewerDid=${viewerDid}` : ''}`;
+                        try {
+                            const peerRes = await fetch(url, {
+                                signal: AbortSignal.timeout(5_000),
+                                headers: {
+                                    'Accept': 'application/json',
+                                    'ngrok-skip-browser-warning': 'true',
+                                },
+                            });
+                            if (!peerRes.ok) {
+                                // Peer responded but with error — mark offline
+                                await supabase
+                                    .from('known_peers')
+                                    .update({ is_active: false })
+                                    .eq('domain', peer.domain);
+                                return [];
+                            }
+                            const data = await peerRes.json() as any[];
+                            // Tag each post with its peer domain so actions can be routed back
+                            return data.map(p => ({
+                                ...p,
+                                peer_domain: peer.domain,
+                                source_instance_url: `https://${peer.domain}`,
+                                is_federated_post: true,
+                            }));
+                        } catch {
+                            // Peer unreachable — mark offline in DB (fire-and-forget)
+                            void supabase
+                                .from('known_peers')
+                                .update({ is_active: false })
+                                .eq('domain', peer.domain);
+                            return [];
+                        }
+                    })
+                );
+
+                const peerPosts = peerPostArrays
+                    .filter((r): r is PromiseFulfilledResult<any[]> => r.status === 'fulfilled')
+                    .flatMap(r => r.value);
+
+                // Merge and sort by created_at descending
+                posts = [...localPosts, ...peerPosts].sort(
+                    (a: any, b: any) =>
+                        new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+                );
+            }
         }
 
         res.json(posts);
