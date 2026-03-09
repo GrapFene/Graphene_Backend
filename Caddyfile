@@ -9,6 +9,14 @@ graphene.myvnc.com {
         }
     }
 
+    handle /federation/* {
+        reverse_proxy backend-app:3000 {
+            header_up X-Real-IP        {remote_host}
+            header_up X-Forwarded-For  {remote_host}
+            header_up X-Forwarded-Proto https
+        }
+    }
+
     handle {
         reverse_proxy frontend-app:80 {
             header_up X-Real-IP        {remote_host}
