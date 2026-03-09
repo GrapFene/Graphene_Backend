@@ -136,6 +136,15 @@ export async function verifyEnvelopeSignature(
  */
 const peerAddressCache = new Map<string, string>();
 
+// Pre-seed the cache from KNOWN_PEER_ADDRESSES env var so that known peers
+// never require a live network call to /federation/actor for signature verification.
+// This is essential when running inside Docker where outbound TLS to peer
+// domains may be unreliable.
+for (const [domain, address] of Object.entries(config.federation.knownPeerAddresses)) {
+    peerAddressCache.set(domain, address);
+    console.log(`[federation/crypto] Pre-seeded peer address: ${domain} → ${address}`);
+}
+
 export async function resolvePeerAddress(domain: string): Promise<string | null> {
     // Cache hit
     if (peerAddressCache.has(domain)) {

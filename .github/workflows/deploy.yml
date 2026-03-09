@@ -109,5 +109,8 @@ jobs:
 
             docker image prune -f
 
+            # Reload Caddy config without downtime
+            docker compose exec -T caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile || true
+
             echo "✅ Deployed $IMAGE_TAG"
             docker compose ps

@@ -68,6 +68,21 @@ export const config = {
         // Comma-separated list of known peer instance domains to broadcast to.
         // Derived from KNOWN_PEERS env var — no hardcoded domains.
         knownPeers: (process.env.KNOWN_PEERS || '').split(',').map(p => p.trim()).filter(Boolean),
+
+        // Pre-seeded peer public addresses to avoid network calls at verify time.
+        // Format: "domain:0xAddress,domain2:0xAddress2"
+        // e.g. KNOWN_PEER_ADDRESSES=graphene.myvnc.com:0xabc123...,peer2.com:0xdef456...
+        knownPeerAddresses: Object.fromEntries(
+            (process.env.KNOWN_PEER_ADDRESSES || '')
+                .split(',')
+                .map(s => s.trim())
+                .filter(Boolean)
+                .map(s => {
+                    const idx = s.indexOf(':0x');
+                    return idx !== -1 ? [s.slice(0, idx), s.slice(idx + 1).toLowerCase()] : null;
+                })
+                .filter((e): e is [string, string] => e !== null)
+        ),
     }
 } as const;
 
