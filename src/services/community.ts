@@ -4,7 +4,7 @@ import { Community, CreateCommunityDto, CommunityRules, UpdateCommunityRulesDto 
 export class CommunityService {
     private static tableName = 'communities';
 
-    static async createCommunity(did: string, { name, description, topic, is_private, rules, is_federated, home_instance_domain }: CreateCommunityDto): Promise<Community> {
+    static async createCommunity(did: string, { name, description, topic, is_private, rules, is_federated, home_instance_domain, skipOwnerCheck }: CreateCommunityDto): Promise<Community> {
         const supabase = getSupabase();
 
         // Check if community exists
@@ -21,6 +21,8 @@ export class CommunityService {
         const { data, error } = await supabase
             .from(this.tableName)
             .insert({
+                // When skipOwnerCheck is true (federated forward), store the remote DID as-is.
+                // If the FK still exists and blocks this, it will fail gracefully on the route level.
                 owner_did: did,
                 name,
                 description,

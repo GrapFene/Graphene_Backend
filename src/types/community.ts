@@ -24,7 +24,9 @@ export interface CreateCommunityDto {
     is_private?: boolean;
     rules?: CommunityRules;
     is_federated?: boolean;
-    home_instance_domain?: string;
+    home_instance_domain?: string | null;
+    /** When true, skip owner FK check (used for federated forwards where owner_did is remote) */
+    skipOwnerCheck?: boolean;
 }
 
 export interface UpdateCommunityRulesDto {

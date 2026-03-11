@@ -7,19 +7,32 @@ const router = express.Router();
 // POST /communities
 router.post('/', async (req, res) => {
     try {
+        const isFederatedForward = req.headers['x-federation-forward'] === 'true';
+        const federationDomain = req.headers['x-federation-domain'] as string | undefined;
         const { did, name, description, topic, is_private, rules, is_federated, home_instance_domain } = req.body;
 
         if (!did || !name) {
             return res.status(400).json({ error: 'DID and name are required' });
         }
 
+        // When this is a federated forward (peer creating community on behalf of remote user),
+        // store with is_federated=true and the originating domain as home_instance_domain.
+        // owner_did may be a remote DID not present in local identities table.
         const community = await CommunityService.createCommunity(did, {
-            name, description, topic, is_private, rules,
-            is_federated, home_instance_domain,
+            name,
+            description,
+            topic,
+            is_private,
+            rules,
+            is_federated: isFederatedForward ? true : (is_federated ?? false),
+            home_instance_domain: isFederatedForward
+                ? (federationDomain ?? home_instance_domain ?? null)
+                : (home_instance_domain ?? null),
+            skipOwnerCheck: isFederatedForward,
         });
 
-        // If federated, also create the community on the peer server
-        if (is_federated && home_instance_domain) {
+        // Only forward to peer when this is a local creation (not a federation forward) to avoid loops
+        if (!isFederatedForward && is_federated && home_instance_domain) {
             try {
                 const peerRes = await fetch(`https://${home_instance_domain}/api/communities`, {
                     method: 'POST',
