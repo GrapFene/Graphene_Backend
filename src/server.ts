@@ -53,6 +53,7 @@ apiRouter.use('/upload', uploadRouter);
 apiRouter.use('/messages', messageRouter);
 
 app.use('/api', apiRouter);
+app.use(apiRouter); // Fallback: handle routes without /api prefix (for Caddy compatibility)
 
 // Serve Frontend Static Files
 const frontendPath = path.resolve(__dirname, '../../frontend/dist');
