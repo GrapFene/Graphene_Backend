@@ -11,21 +11,35 @@ router.post('/', async (req, res) => {
     try {
         const { did, postId, content, parentId, peer_domain: bodyPeerDomain } = req.body;
 
-        // Check if this post belongs to a peer instance
+        // Determine peer domain:
+        //   1. Look up the post in our DB (most reliable)
+        //   2. Fall back to peer_domain sent by the client
         const supabase = getSupabase();
         const { data: post } = await supabase
             .from('posts')
-            .select('source_instance_url, peer_domain')
+            .select('source_instance_url, peer_domain, subreddit')
             .eq('id', postId)
             .maybeSingle();
 
-        // Determine peer domain: prefer DB lookup, fall back to what frontend sent
-        const peerDomain = post?.peer_domain ||
+        let peerDomain = post?.peer_domain ||
             (post?.source_instance_url
                 ? post.source_instance_url.replace(/^https?:\/\//, '')
                 : null) ||
             bodyPeerDomain ||
             null;
+
+        // If post not found locally, also check the community's home_instance_domain
+        if (!peerDomain && post?.subreddit) {
+            const { data: community } = await supabase
+                .from('communities')
+                .select('is_federated, home_instance_domain')
+                .eq('name', post.subreddit)
+                .maybeSingle();
+            if (community?.is_federated && community.home_instance_domain &&
+                community.home_instance_domain !== config.federation.instanceDomain) {
+                peerDomain = community.home_instance_domain;
+            }
+        }
 
         if (peerDomain && peerDomain !== config.federation.instanceDomain) {
             // Post lives on peer — check peer is online
@@ -94,23 +108,50 @@ router.post('/:id/vote', async (req, res) => {
             return res.status(400).json({ error: 'DID and voteType are required' });
         }
 
-        // If a peer_domain is provided, forward the comment vote to that peer
-        if (bodyPeerDomain && bodyPeerDomain !== config.federation.instanceDomain) {
+        // Determine peer domain: client may send it directly; otherwise look up via the comment's post
+        let peerDomain: string | null = bodyPeerDomain || null;
+
+        if (!peerDomain) {
+            const supabase = getSupabase();
+            // Find which post this comment belongs to, then check post's peer domain
+            const { data: comment } = await supabase
+                .from('comments')
+                .select('post_id')
+                .eq('id', id)
+                .maybeSingle();
+
+            if (comment?.post_id) {
+                const { data: post } = await supabase
+                    .from('posts')
+                    .select('source_instance_url, peer_domain')
+                    .eq('id', comment.post_id)
+                    .maybeSingle();
+
+                peerDomain = post?.peer_domain ||
+                    (post?.source_instance_url
+                        ? post.source_instance_url.replace(/^https?:\/\//, '')
+                        : null) ||
+                    null;
+            }
+        }
+
+        // If post lives on a peer — forward the vote there
+        if (peerDomain && peerDomain !== config.federation.instanceDomain) {
             const supabase = getSupabase();
             const { data: peer } = await supabase
                 .from('known_peers')
                 .select('is_active')
-                .eq('domain', bodyPeerDomain)
+                .eq('domain', peerDomain)
                 .maybeSingle();
 
             if (!peer?.is_active) {
-                return res.status(503).json({ error: `Peer instance (${bodyPeerDomain}) is currently offline` });
+                return res.status(503).json({ error: `Peer instance (${peerDomain}) is currently offline` });
             }
 
             const { signPayload } = await import('../lib/federation/crypto.js');
             const forwardPayload = { did, voteType, commentId: id };
             const signature = await signPayload(forwardPayload);
-            const peerRes = await fetch(`https://${bodyPeerDomain}/api/comments/${id}/vote`, {
+            const peerRes = await fetch(`https://${peerDomain}/api/comments/${id}/vote`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -129,8 +170,10 @@ router.post('/:id/vote', async (req, res) => {
             return res.json(await peerRes.json());
         }
 
+        // Local comment — vote and return updated score
         await CommentService.voteComment(did, id, { voteType });
-        res.json({ success: true });
+        const score = await CommentService.getCommentScore(id);
+        res.json({ success: true, score });
     } catch (error: any) {
         res.status(500).json({ error: error.message });
     }

@@ -1,6 +1,5 @@
 import express from 'express';
 import { VoteService } from '../services/vote.js';
-import { FederationDispatcher } from '../lib/federation/dispatcher.js';
 import { getSupabase } from '../services/supabase.js';
 import { config } from '../config/index.js';
 import { signPayload } from '../lib/federation/crypto.js';
@@ -16,21 +15,36 @@ router.post('/', async (req, res) => {
             return res.status(400).json({ error: 'DID, postId, and voteType are required' });
         }
 
-        // Check if this post belongs to a peer instance
+        // Determine peer domain:
+        //   1. Look up the post in our DB
+        //   2. Look up the community's home_instance_domain
+        //   3. Fall back to peer_domain sent by the client
         const supabase = getSupabase();
         const { data: post } = await supabase
             .from('posts')
-            .select('source_instance_url, peer_domain')
+            .select('source_instance_url, peer_domain, subreddit')
             .eq('id', postId)
             .maybeSingle();
 
-        // Determine peer domain: prefer DB lookup, fall back to what frontend sent
-        const peerDomain = post?.peer_domain ||
+        let peerDomain = post?.peer_domain ||
             (post?.source_instance_url
                 ? post.source_instance_url.replace(/^https?:\/\//, '')
                 : null) ||
             bodyPeerDomain ||
             null;
+
+        // If post not found locally, check the community's home_instance_domain
+        if (!peerDomain && post?.subreddit) {
+            const { data: community } = await supabase
+                .from('communities')
+                .select('is_federated, home_instance_domain')
+                .eq('name', post.subreddit)
+                .maybeSingle();
+            if (community?.is_federated && community.home_instance_domain &&
+                community.home_instance_domain !== config.federation.instanceDomain) {
+                peerDomain = community.home_instance_domain;
+            }
+        }
 
         if (peerDomain && peerDomain !== config.federation.instanceDomain) {
             // This post lives on a peer — forward the vote there
@@ -65,17 +79,8 @@ router.post('/', async (req, res) => {
             return res.status(201).json(await peerRes.json());
         }
 
-        // Local post — handle normally
+        // Local post — handle normally (no broadcast needed for local-only votes)
         const result = await VoteService.voteOnPost(did, postId, voteType);
-
-        FederationDispatcher.broadcastVote({
-            post_id:   postId,
-            voter_did: did,
-            vote_type: voteType as 1 | -1 | 0,
-        }).catch((err) =>
-            console.error('[vote route] Federation broadcast failed:', err)
-        );
-
         res.status(201).json(result);
     } catch (error: any) {
         res.status(500).json({ error: error.message });

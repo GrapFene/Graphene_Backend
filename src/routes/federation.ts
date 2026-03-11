@@ -84,6 +84,33 @@ async function handleCreate(payload: FederatedPost): Promise<InboxProcessResult>
         return { accepted: true, reason: 'Already exists (idempotent)' };
     }
 
+    // -----------------------------------------------------------------------
+    // Single-source-of-truth guard
+    // -----------------------------------------------------------------------
+    // If the post belongs to a community whose home_instance_domain is a peer
+    // (i.e. NOT this instance), we must NOT save it locally.
+    // The post lives exclusively on the peer that owns the community.
+    // The feed is merged at read-time by GET /posts — no local copy needed.
+    // -----------------------------------------------------------------------
+    if (payload.subreddit) {
+        const { data: community } = await supabase
+            .from('communities')
+            .select('is_federated, home_instance_domain')
+            .eq('name', payload.subreddit)
+            .maybeSingle();
+
+        if (
+            community?.is_federated &&
+            community.home_instance_domain &&
+            community.home_instance_domain !== config.federation.instanceDomain
+        ) {
+            console.log(
+                `[inbox] ⏭️  Skipping local save for post ${payload.id} — community '${payload.subreddit}' is owned by ${community.home_instance_domain}`
+            );
+            return { accepted: true, reason: 'Post belongs to peer-owned community — not stored locally' };
+        }
+    }
+
     // author_did must reference an identity row.  For federated users we
     // upsert a minimal identity record so FK constraints are satisfied.
     await supabase
