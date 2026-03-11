@@ -172,23 +172,27 @@ router.get('/', async (req, res) => {
 // POST /posts - Create a new post
 router.post('/', authenticateToken, async (req, res) => {
     try {
-        const { title, content, subreddit, media_url, media_type } = req.body as CreatePostDto;
-        const did = (req as AuthRequest).user?.sub;
+        const { title, content, subreddit, media_url, media_type, author_did: federatedAuthorDid } = req.body as CreatePostDto & { author_did?: string };
+        const isFederatedForward = req.headers['x-federation-forward'] === 'true';
+        // For federated forwards the JWT belongs to the forwarding instance, not the original author.
+        // Use the X-Author-Did header or body author_did as the real author.
+        const jwtDid = (req as AuthRequest).user?.sub;
+        const did = isFederatedForward
+            ? ((req.headers['x-author-did'] as string) || federatedAuthorDid || jwtDid)
+            : jwtDid;
 
         if (!did) {
             return res.status(401).json({ error: 'Unauthorized' });
         }
 
-        // Check if the target community is hosted on a peer instance.
-        // If so, forward the create request to that peer instead of saving locally.
-        if (subreddit) {
+        // When this is already a federated forward, save locally — never forward again (breaks loop).
+        if (!isFederatedForward && subreddit) {
             const community = await CommunityService.getCommunity(subreddit);
-            if (community?.is_federated && community.home_instance_domain) {
+            if (community?.is_federated && community.home_instance_domain &&
+                community.home_instance_domain !== config.federation.instanceDomain) {
                 const peerDomain = community.home_instance_domain;
                 const peerUrl = `https://${peerDomain}/api/posts`;
 
-                // Sign the forwarded payload with this instance's federation key
-                // so the peer can verify it came from a trusted Graphene node.
                 const forwardPayload = { title, content, subreddit, media_url, media_type, author_did: did };
                 const signature = await signPayload(forwardPayload);
 
@@ -215,7 +219,6 @@ router.post('/', authenticateToken, async (req, res) => {
                         });
                     }
 
-                    // Peer saved it — return their response (includes peer-assigned ID etc.)
                     return res.status(201).json(peerBody);
                 } catch (peerErr: any) {
                     console.error(`[post route] Could not reach peer ${peerDomain}:`, peerErr.message);
