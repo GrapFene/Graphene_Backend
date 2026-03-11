@@ -1,5 +1,6 @@
 import express from 'express';
 import { CommunityService } from '../services/community.js';
+import { config } from '../config/index.js';
 
 const router = express.Router();
 
@@ -16,6 +17,33 @@ router.post('/', async (req, res) => {
             name, description, topic, is_private, rules,
             is_federated, home_instance_domain,
         });
+
+        // If federated, also create the community on the peer server
+        if (is_federated && home_instance_domain) {
+            try {
+                const peerRes = await fetch(`https://${home_instance_domain}/api/communities`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Federation-Forward': 'true',
+                        'X-Federation-Domain': config.federation.instanceDomain,
+                        'X-Author-Did': did,
+                        'ngrok-skip-browser-warning': 'true',
+                    },
+                    body: JSON.stringify({ did, name, description, topic, is_private, rules }),
+                    signal: AbortSignal.timeout(8_000),
+                });
+                if (!peerRes.ok) {
+                    const body = await peerRes.text();
+                    console.warn(`[community] Peer community creation failed: ${body}`);
+                } else {
+                    console.log(`[community] ✅ Community '${name}' also created on peer ${home_instance_domain}`);
+                }
+            } catch (peerErr: any) {
+                console.warn(`[community] Could not create community on peer ${home_instance_domain}:`, peerErr.message);
+            }
+        }
+
         res.status(201).json(community);
     } catch (error: any) {
         res.status(500).json({ error: error.message });
