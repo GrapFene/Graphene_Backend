@@ -31,6 +31,21 @@ export async function sendFederationSync(
 
         if (!response.ok) {
             const body = await response.text().catch(() => '');
+
+            // Treat these as idempotent success — no point retrying:
+            // • duplicate key      → peer already has this record (race condition)
+            // • already exists     → same as above
+            // • Envelope expired   → stale retry; peer has likely already processed it
+            // • Malformed envelope → stored payload is corrupt; retrying won't help
+            const isIdempotent =
+                (response.status === 422 && (body.includes('duplicate key') || body.includes('already exists'))) ||
+                (response.status === 400 && (body.includes('Envelope expired') || body.includes('Malformed envelope')));
+
+            if (isIdempotent) {
+                console.log(`✅ [network] ${syncType} idempotent/stale on ${targetDomain} — treating as success`);
+                return;
+            }
+
             throw new Error(`Peer returned ${response.status}: ${body}`);
         }
 

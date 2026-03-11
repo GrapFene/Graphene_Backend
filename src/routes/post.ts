@@ -86,6 +86,54 @@ router.get('/:id', async (req, res) => {
     }
 });
 
+// ---------------------------------------------------------------------------
+// Simple in-memory cache for peer posts — avoids hammering peer on every feed
+// request. Cache TTL: 30 seconds per peer domain.
+// ---------------------------------------------------------------------------
+const peerPostCache = new Map<string, { posts: any[]; fetchedAt: number }>();
+const PEER_CACHE_TTL_MS = 30_000; // 30 seconds
+
+async function fetchPeerPosts(peer: { domain: string }, viewerDid?: string, supabase?: any): Promise<any[]> {
+    const cacheKey = `${peer.domain}:${viewerDid ?? ''}`;
+    const cached = peerPostCache.get(cacheKey);
+    if (cached && Date.now() - cached.fetchedAt < PEER_CACHE_TTL_MS) {
+        return cached.posts;
+    }
+
+    const url = `https://${peer.domain}/api/posts${viewerDid ? `?viewerDid=${viewerDid}` : ''}`;
+    try {
+        const peerRes = await fetch(url, {
+            signal: AbortSignal.timeout(5_000),
+            headers: {
+                'Accept': 'application/json',
+                'ngrok-skip-browser-warning': 'true',
+            },
+        });
+        if (!peerRes.ok) {
+            if (supabase) {
+                void supabase.from('known_peers').update({ is_active: false }).eq('domain', peer.domain);
+            }
+            peerPostCache.delete(cacheKey);
+            return [];
+        }
+        const data = await peerRes.json() as any[];
+        const tagged = data.map((p: any) => ({
+            ...p,
+            peer_domain: peer.domain,
+            source_instance_url: `https://${peer.domain}`,
+            is_federated_post: true,
+        }));
+        peerPostCache.set(cacheKey, { posts: tagged, fetchedAt: Date.now() });
+        return tagged;
+    } catch {
+        if (supabase) {
+            void supabase.from('known_peers').update({ is_active: false }).eq('domain', peer.domain);
+        }
+        peerPostCache.delete(cacheKey);
+        return [];
+    }
+}
+
 // GET /posts (Global Feed)
 router.get('/', async (req, res) => {
     try {
@@ -111,44 +159,10 @@ router.get('/', async (req, res) => {
             if (!activePeers || activePeers.length === 0) {
                 posts = localPosts;
             } else {
-                // Fetch posts from each active peer (fire all in parallel).
-                // If a peer is unreachable RIGHT NOW, we get [] and mark it offline.
                 const peerPostArrays = await Promise.allSettled(
-                    activePeers.map(async (peer: { domain: string }) => {
-                        const url = `https://${peer.domain}/api/posts${viewerDid ? `?viewerDid=${viewerDid}` : ''}`;
-                        try {
-                            const peerRes = await fetch(url, {
-                                signal: AbortSignal.timeout(5_000),
-                                headers: {
-                                    'Accept': 'application/json',
-                                    'ngrok-skip-browser-warning': 'true',
-                                },
-                            });
-                            if (!peerRes.ok) {
-                                // Peer responded but with error — mark offline
-                                await supabase
-                                    .from('known_peers')
-                                    .update({ is_active: false })
-                                    .eq('domain', peer.domain);
-                                return [];
-                            }
-                            const data = await peerRes.json() as any[];
-                            // Tag each post with its peer domain so actions can be routed back
-                            return data.map(p => ({
-                                ...p,
-                                peer_domain: peer.domain,
-                                source_instance_url: `https://${peer.domain}`,
-                                is_federated_post: true,
-                            }));
-                        } catch {
-                            // Peer unreachable — mark offline in DB (fire-and-forget)
-                            void supabase
-                                .from('known_peers')
-                                .update({ is_active: false })
-                                .eq('domain', peer.domain);
-                            return [];
-                        }
-                    })
+                    activePeers.map((peer: { domain: string }) =>
+                        fetchPeerPosts(peer, viewerDid, supabase)
+                    )
                 );
 
                 const peerPosts = peerPostArrays
@@ -191,8 +205,24 @@ router.post('/', authenticateToken, async (req, res) => {
             if (community?.is_federated && community.home_instance_domain &&
                 community.home_instance_domain !== config.federation.instanceDomain) {
                 const peerDomain = community.home_instance_domain;
-                const peerUrl = `https://${peerDomain}/api/posts`;
 
+                // Check if the peer is currently marked active in our DB.
+                // If it's offline, fail fast with a clear error — don't attempt the request.
+                const { getSupabase } = await import('../services/supabase.js');
+                const supabase = getSupabase();
+                const { data: peerRecord } = await supabase
+                    .from('known_peers')
+                    .select('is_active')
+                    .eq('domain', peerDomain)
+                    .maybeSingle();
+
+                if (peerRecord && !peerRecord.is_active) {
+                    return res.status(503).json({
+                        error: `The peer server hosting this community (${peerDomain}) is currently offline. Please try again later.`,
+                    });
+                }
+
+                const peerUrl = `https://${peerDomain}/api/posts`;
                 const forwardPayload = { title, content, subreddit, media_url, media_type, author_did: did };
                 const signature = await signPayload(forwardPayload);
 
@@ -231,12 +261,9 @@ router.post('/', authenticateToken, async (req, res) => {
 
         const newPost = await PostService.createPost(did, { title, content, subreddit, media_url, media_type });
 
-        // Fire-and-forget federation broadcast.
-        // We do NOT await this — local users should never be blocked by
-        // federation latency. Failed deliveries are queued for retry internally.
-        FederationDispatcher.broadcastPost(newPost).catch((err) =>
-            console.error('[post route] Federation broadcast failed:', err)
-        );
+        // NOTE: We do NOT broadcast posts via federation — posts live on exactly ONE server.
+        // Peer communities: post was already forwarded directly above.
+        // Local communities: post lives here only; peers pull it via GET /api/posts feed merge.
 
         res.status(201).json(newPost);
     } catch (error: any) {

@@ -41,7 +41,8 @@ const router = Router();
 
 // How far in the past (ms) we tolerate an envelope timestamp.
 // Envelopes older than this are considered potential replays.
-const REPLAY_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
+// Set to 24 hours to allow the retry worker (which replays stored envelopes) to succeed.
+const REPLAY_WINDOW_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 // ---------------------------------------------------------------------------
 // GET /federation/actor
@@ -91,7 +92,7 @@ async function handleCreate(payload: FederatedPost): Promise<InboxProcessResult>
             { onConflict: 'did', ignoreDuplicates: true }
         );
 
-    const { error } = await supabase.from('posts').insert({
+    const { error } = await supabase.from('posts').upsert({
         id: payload.id,
         author_did: payload.author_did,
         title: payload.title,
@@ -103,7 +104,7 @@ async function handleCreate(payload: FederatedPost): Promise<InboxProcessResult>
         updated_at: payload.created_at,
         source_instance_url: payload.source_instance_url,
         is_verified: true,
-    });
+    }, { onConflict: 'id', ignoreDuplicates: true });
 
     if (error) {
         console.error('[inbox] handleCreate DB error:', error.message);
