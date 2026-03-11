@@ -1,4 +1,6 @@
 import express from 'express';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import cors from 'cors';
 import { config, validateConfig } from './config/index.js';
 import {
@@ -23,6 +25,9 @@ import { announceToKnownPeers } from './services/announce.js';
 
 // Validate environment before starting
 validateConfig();
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 
@@ -49,9 +54,22 @@ apiRouter.use('/messages', messageRouter);
 
 app.use('/api', apiRouter);
 
+// Serve Frontend Static Files
+const frontendPath = path.resolve(__dirname, '../../frontend/dist');
+app.use(express.static(frontendPath));
+
 // Health check
 app.get('/health', (_, res) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+// Catch-all route for SPA (React Router)
+app.get('*', (req, res) => {
+    if (!req.path.startsWith('/api')) {
+        res.sendFile(path.join(frontendPath, 'index.html'));
+    } else {
+        res.status(404).json({ error: 'API route not found' });
+    }
 });
 
 // Start retry worker
