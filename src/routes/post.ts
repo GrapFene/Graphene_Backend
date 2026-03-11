@@ -88,19 +88,22 @@ router.get('/:id', async (req, res) => {
 
 // ---------------------------------------------------------------------------
 // Simple in-memory cache for peer posts — avoids hammering peer on every feed
-// request. Cache TTL: 30 seconds per peer domain.
+// request. Cache key is per-domain only (not per-user) — peer posts are public
+// and the same for all viewers. TTL: 60 seconds.
 // ---------------------------------------------------------------------------
 const peerPostCache = new Map<string, { posts: any[]; fetchedAt: number }>();
-const PEER_CACHE_TTL_MS = 30_000; // 30 seconds
+const PEER_CACHE_TTL_MS = 60_000; // 60 seconds
 
 async function fetchPeerPosts(peer: { domain: string }, viewerDid?: string, supabase?: any): Promise<any[]> {
-    const cacheKey = `${peer.domain}:${viewerDid ?? ''}`;
+    // Cache key is domain-only — avoids a separate fetch per user
+    const cacheKey = peer.domain;
     const cached = peerPostCache.get(cacheKey);
     if (cached && Date.now() - cached.fetchedAt < PEER_CACHE_TTL_MS) {
         return cached.posts;
     }
 
-    const url = `https://${peer.domain}/api/posts${viewerDid ? `?viewerDid=${viewerDid}` : ''}`;
+    // Fetch without viewerDid — vote data is enriched from local DB per user separately
+    const url = `https://${peer.domain}/api/posts`;
     try {
         const peerRes = await fetch(url, {
             signal: AbortSignal.timeout(5_000),
