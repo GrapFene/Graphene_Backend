@@ -370,6 +370,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
         const { id } = req.params;
         const { title, content } = req.body;
         const did = (req as AuthRequest).user?.sub;
+        const isFederatedForward = req.headers['x-federation-forward'] === 'true';
 
         if (!did) {
             return res.status(401).json({ error: 'Unauthorized' });
@@ -378,18 +379,53 @@ router.put('/:id', authenticateToken, async (req, res) => {
         const { getSupabase } = await import('../services/supabase.js');
         const supabase = getSupabase();
 
-        // Check if post exists and belongs to user
+        // Check if post exists locally
         const { data: post, error: fetchError } = await supabase
             .from('posts')
             .select('*')
             .eq('id', id)
             .single();
 
-        if (fetchError || !post) {
+        // Not found locally — forward to peer if peer_domain query param supplied
+        if ((fetchError || !post) && !isFederatedForward) {
+            const peerDomain = req.query.peer_domain as string | undefined;
+            if (peerDomain) {
+                try {
+                    const signature = await signPayload({ post_id: id, author_did: did });
+                    const peerRes = await fetch(`https://${peerDomain}/api/posts/${id}`, {
+                        method: 'PUT',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-Federation-Forward': 'true',
+                            'X-Federation-Domain': config.federation.instanceDomain,
+                            'X-Federation-Signature': signature,
+                            'X-Author-Did': did,
+                        },
+                        body: JSON.stringify({ title, content }),
+                        signal: AbortSignal.timeout(10_000),
+                    });
+                    if (!peerRes.ok) {
+                        const body = await peerRes.json().catch(() => ({})) as any;
+                        return res.status(peerRes.status).json({ error: body?.error ?? 'Peer rejected update' });
+                    }
+                    const updatedPost = await peerRes.json();
+                    return res.json(updatedPost);
+                } catch (peerErr: any) {
+                    return res.status(502).json({ error: `Could not reach peer server (${peerDomain}): ${peerErr.message}` });
+                }
+            }
             return res.status(404).json({ error: 'Post not found' });
         }
 
-        if (post.author_did !== did) {
+        if (!post) {
+            return res.status(404).json({ error: 'Post not found' });
+        }
+
+        const authorDid = isFederatedForward
+            ? ((req.headers['x-author-did'] as string) || did)
+            : did;
+
+        if (post.author_did !== authorDid) {
             return res.status(403).json({ error: 'Forbidden: Can only edit your own posts' });
         }
 
@@ -414,6 +450,7 @@ router.delete('/:id', authenticateToken, async (req, res) => {
     try {
         const { id } = req.params;
         const did = (req as AuthRequest).user?.sub;
+        const isFederatedForward = req.headers['x-federation-forward'] === 'true';
 
         if (!did) {
             return res.status(401).json({ error: 'Unauthorized' });
@@ -422,18 +459,53 @@ router.delete('/:id', authenticateToken, async (req, res) => {
         const { getSupabase } = await import('../services/supabase.js');
         const supabase = getSupabase();
 
-        // Check if post exists and belongs to user
+        // Try to find the post locally first
         const { data: post, error: fetchError } = await supabase
             .from('posts')
             .select('*')
             .eq('id', id)
             .single();
 
-        if (fetchError || !post) {
+        // If not found locally AND this is not already a federation forward,
+        // check if it lives on a known peer and forward the delete there.
+        if ((fetchError || !post) && !isFederatedForward) {
+            const peerDomain = req.query.peer_domain as string | undefined;
+            if (peerDomain) {
+                try {
+                    const signature = await signPayload({ post_id: id, author_did: did });
+                    const peerRes = await fetch(`https://${peerDomain}/api/posts/${id}`, {
+                        method: 'DELETE',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-Federation-Forward': 'true',
+                            'X-Federation-Domain': config.federation.instanceDomain,
+                            'X-Federation-Signature': signature,
+                            'X-Author-Did': did,
+                        },
+                        signal: AbortSignal.timeout(10_000),
+                    });
+                    if (!peerRes.ok) {
+                        const body = await peerRes.json().catch(() => ({})) as any;
+                        return res.status(peerRes.status).json({ error: body?.error ?? 'Peer rejected delete' });
+                    }
+                    return res.json({ message: 'Post deleted successfully on peer' });
+                } catch (peerErr: any) {
+                    return res.status(502).json({ error: `Could not reach peer server (${peerDomain}): ${peerErr.message}` });
+                }
+            }
             return res.status(404).json({ error: 'Post not found' });
         }
 
-        if (post.author_did !== did) {
+        if (!post) {
+            return res.status(404).json({ error: 'Post not found' });
+        }
+
+        // For federation forwards, trust the X-Author-Did header
+        const authorDid = isFederatedForward
+            ? ((req.headers['x-author-did'] as string) || did)
+            : did;
+
+        if (post.author_did !== authorDid) {
             return res.status(403).json({ error: 'Forbidden: Can only delete your own posts' });
         }
 
@@ -446,7 +518,7 @@ router.delete('/:id', authenticateToken, async (req, res) => {
         if (deleteError) throw new Error(`Failed to delete post: ${deleteError.message}`);
 
         // Fire-and-forget: tell peer instances to remove their copy.
-        FederationDispatcher.broadcastDelete({ post_id: id, author_did: did }).catch((err) =>
+        FederationDispatcher.broadcastDelete({ post_id: id, author_did: authorDid }).catch((err) =>
             console.error('[post route] Federation delete broadcast failed:', err)
         );
 
