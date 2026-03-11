@@ -95,6 +95,11 @@ const peerPostCache = new Map<string, { posts: any[]; fetchedAt: number }>();
 const PEER_CACHE_TTL_MS = 60_000; // 60 seconds
 
 async function fetchPeerPosts(peer: { domain: string }, viewerDid?: string, supabase?: any): Promise<any[]> {
+    // Skip fetching from ourselves — would just return our own posts as "peer posts"
+    if (peer.domain === config.federation.instanceDomain) {
+        return [];
+    }
+
     // Cache key is domain-only — avoids a separate fetch per user
     const cacheKey = peer.domain;
     const cached = peerPostCache.get(cacheKey);
@@ -170,10 +175,18 @@ router.get('/', async (req, res) => {
 
                 const peerPosts = peerPostArrays
                     .filter((r): r is PromiseFulfilledResult<any[]> => r.status === 'fulfilled')
-                    .flatMap(r => r.value);
+                    .flatMap(r => r.value)
+                    // Drop any peer post whose peer_domain matches THIS instance —
+                    // that means a peer is just mirroring our own posts back to us.
+                    .filter((p: any) => p.peer_domain !== config.federation.instanceDomain);
+
+                // Build a Set of local post IDs so we can deduplicate:
+                // If a peer also has a copy of a post we own locally, prefer our local version.
+                const localIds = new Set(localPosts.map((p: any) => p.id));
+                const uniquePeerPosts = peerPosts.filter((p: any) => !localIds.has(p.id));
 
                 // Merge and sort by created_at descending
-                posts = [...localPosts, ...peerPosts].sort(
+                posts = [...localPosts, ...uniquePeerPosts].sort(
                     (a: any, b: any) =>
                         new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
                 );
