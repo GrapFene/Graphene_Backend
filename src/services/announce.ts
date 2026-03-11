@@ -10,13 +10,14 @@
 // =============================================================================
 
 import { config } from '../config/index.js';
-import { signPayload } from '../lib/federation/crypto.js';
+import { signPayload, INSTANCE_PUBLIC_ADDRESS } from '../lib/federation/crypto.js';
 import type { FederationEnvelope, FederatedAnnounce } from '../types/federation.js';
 
 async function sendAnnounce(targetDomain: string): Promise<void> {
     const payload: FederatedAnnounce = {
         instance_domain: config.federation.instanceDomain,
         instance_name: `Graphene @ ${config.federation.instanceDomain}`,
+        public_address: INSTANCE_PUBLIC_ADDRESS,
     };
 
     const signature = await signPayload(payload);

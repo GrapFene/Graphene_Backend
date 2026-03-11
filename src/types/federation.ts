@@ -83,6 +83,9 @@ export interface FederatedAnnounce {
     instance_domain: string;
     /** Human-readable name of the instance. */
     instance_name?: string;
+    /** Public Ethereum address of the announcing instance — used as fallback
+     *  when the receiver can't reach /federation/actor to resolve the key. */
+    public_address?: string;
     /** Optional: community this instance wants to share with us. */
     community?: {
         name: string;

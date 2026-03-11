@@ -187,3 +187,12 @@ export async function resolvePeerAddress(domain: string): Promise<string | null>
 export function invalidatePeerAddressCache(domain: string): void {
     peerAddressCache.delete(domain);
 }
+
+/**
+ * Seed the peer address cache with a known address.
+ * Used when a peer announces itself and we can't reach their /federation/actor
+ * endpoint, but they included their public_address in the envelope payload.
+ */
+export function seedPeerAddressCache(domain: string, address: string): void {
+    peerAddressCache.set(domain, address.toLowerCase());
+}

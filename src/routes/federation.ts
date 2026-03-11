@@ -23,6 +23,7 @@ import {
     verifyEnvelopeSignature,
     resolvePeerAddress,
     invalidatePeerAddressCache,
+    seedPeerAddressCache,
     INSTANCE_PUBLIC_ADDRESS,
 } from '../lib/federation/crypto.js';
 import { config } from '../config/index.js';
@@ -307,13 +308,23 @@ router.post('/inbox', async (req: Request, res: Response) => {
     }
 
     // ------------------------------------------------------------------
-    // 4. Resolve sender's public address and verify signature
-    //    If verification fails once, invalidate the address cache and retry
-    //    once — the peer may have rotated their key.
+    // 4. Resolve sender's public address and verify signature.
+    //    If the network call to /federation/actor fails (peer unreachable),
+    //    fall back to the public_address embedded in the envelope payload
+    //    so an Announce still succeeds even when we can't reach the peer.
     // ------------------------------------------------------------------
     let peerAddress = await resolvePeerAddress(actor_domain);
+
     if (!peerAddress) {
-        return res.status(403).json({ error: `Cannot resolve actor for domain: ${actor_domain}` });
+        // Try to extract public_address from the payload itself (peer sends it in Announce)
+        const payloadPublicAddress = (payload as any)?.public_address;
+        if (typeof payloadPublicAddress === 'string' && payloadPublicAddress.startsWith('0x')) {
+            console.log(`[inbox] ℹ️ Could not reach ${actor_domain}/federation/actor — using public_address from payload`);
+            peerAddress = payloadPublicAddress.toLowerCase();
+            seedPeerAddressCache(actor_domain, peerAddress);
+        } else {
+            return res.status(403).json({ error: `Cannot resolve actor for domain: ${actor_domain}` });
+        }
     }
 
     let isValid = await verifyEnvelopeSignature(payload, signature, peerAddress);
