@@ -30,23 +30,40 @@ async function sendAnnounce(targetDomain: string): Promise<void> {
         signature,
     };
 
-    const url = `https://${targetDomain}/federation/inbox`;
-    const res = await fetch(url, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'X-Graphene-Actor': config.federation.instanceDomain,
-            'ngrok-skip-browser-warning': 'true',
-        },
-        body: JSON.stringify(envelope),
-        signal: AbortSignal.timeout(8_000),
-    });
+    const protocols = ['https', 'http'];
+    let lastError: any = null;
+    let success = false;
 
-    if (!res.ok) {
-        const body = await res.text().catch(() => '');
-        throw new Error(`HTTP ${res.status}: ${body}`);
+    for (const protocol of protocols) {
+        try {
+            const url = `${protocol}://${targetDomain}/federation/inbox`;
+            const res = await fetch(url, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Graphene-Actor': config.federation.instanceDomain,
+                    'ngrok-skip-browser-warning': 'true',
+                },
+                body: JSON.stringify(envelope),
+                signal: AbortSignal.timeout(5000),
+            });
+
+            if (res.ok) {
+                success = true;
+                break; 
+            } else {
+                const body = await res.text().catch(() => '');
+                lastError = new Error(`HTTP ${res.status}: ${body}`);
+            }
+        } catch (err: any) {
+            lastError = err;
+            // Continue to next protocol (usually http)
+        }
     }
 
+    if (!success) {
+        throw lastError || new Error(`Failed to announce to ${targetDomain}`);
+    }
     console.log(`[announce] ✅ Announced to ${targetDomain}`);
 }
 

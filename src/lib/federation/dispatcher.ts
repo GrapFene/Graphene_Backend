@@ -86,30 +86,36 @@ export class FederationDispatcher {
         domain: string,
         envelope: FederationEnvelope
     ): Promise<DispatchResult> {
-        const url = `https://${domain}/federation/inbox`;
+        const protocols = ['https', 'http'];
+        let lastError: any = null;
+        let lastStatus: number | undefined;
 
-        try {
-            const res = await fetch(url, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    // Identify ourselves as a federation client so peers can
-                    // quickly filter non-federation traffic in middleware.
-                    'X-Graphene-Actor': config.federation.instanceDomain,
-                },
-                body: JSON.stringify(envelope),
-                signal: AbortSignal.timeout(config.federation.outboundTimeoutMs),
-            });
+        for (const protocol of protocols) {
+            try {
+                const url = `${protocol}://${domain}/api/federation/inbox`;
+                const res = await fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Graphene-Actor': config.federation.instanceDomain,
+                    },
+                    body: JSON.stringify(envelope),
+                    signal: AbortSignal.timeout(config.federation.outboundTimeoutMs),
+                });
 
-            if (!res.ok) {
-                const body = await res.text().catch(() => '');
-                return { domain, success: false, status: res.status, error: body };
+                if (res.ok) {
+                    return { domain, success: true, status: res.status };
+                } else {
+                    const body = await res.text().catch(() => '');
+                    lastStatus = res.status;
+                    lastError = body;
+                }
+            } catch (err: any) {
+                lastError = err?.message ?? String(err);
             }
-
-            return { domain, success: true, status: res.status };
-        } catch (err: any) {
-            return { domain, success: false, error: err?.message ?? String(err) };
         }
+
+        return { domain, success: false, status: lastStatus, error: lastError };
     }
 
     // -------------------------------------------------------------------------

@@ -151,32 +151,40 @@ export async function resolvePeerAddress(domain: string): Promise<string | null>
         return peerAddressCache.get(domain)!;
     }
 
-    try {
-        const url = `https://${domain}/federation/actor`;
-        const res = await fetch(url, {
-            signal: AbortSignal.timeout(config.federation.outboundTimeoutMs),
-            headers: { 'Accept': 'application/json' },
-        });
+    const protocols = ['https', 'http'];
+    let lastError: any = null;
 
-        if (!res.ok) {
-            console.warn(`[federation/crypto] GET ${url} returned ${res.status}`);
-            return null;
+    for (const protocol of protocols) {
+        try {
+            const url = `${protocol}://${domain}/federation/actor`;
+            const res = await fetch(url, {
+                signal: AbortSignal.timeout(config.federation.outboundTimeoutMs),
+                headers: { 'Accept': 'application/json' },
+            });
+
+            if (!res.ok) {
+                console.warn(`[federation/crypto] GET ${url} returned ${res.status}`);
+                continue;
+            }
+
+            const actor = await res.json() as Record<string, unknown>;
+
+            if (!actor?.public_address || typeof actor.public_address !== 'string') {
+                console.warn(`[federation/crypto] actor from ${domain} missing public_address`);
+                continue;
+            }
+
+            const address = (actor.public_address as string).toLowerCase();
+            peerAddressCache.set(domain, address);
+            return address;
+        } catch (err: any) {
+            lastError = err;
+            // Continue to next protocol
         }
-
-        const actor = await res.json() as Record<string, unknown>;
-
-        if (!actor?.public_address || typeof actor.public_address !== 'string') {
-            console.warn(`[federation/crypto] actor from ${domain} missing public_address`);
-            return null;
-        }
-
-        const address = (actor.public_address as string).toLowerCase();
-        peerAddressCache.set(domain, address);
-        return address;
-    } catch (err) {
-        console.error(`[federation/crypto] resolvePeerAddress(${domain}) failed:`, err);
-        return null;
     }
+
+    console.error(`[federation/crypto] resolvePeerAddress(${domain}) failed:`, lastError);
+    return null;
 }
 
 /**

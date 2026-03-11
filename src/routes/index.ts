@@ -10,6 +10,7 @@ import { commentRouter } from './comment.js';
 import { moderationRouter } from './moderation.js';
 import { federationRouter } from './federation.js';
 import { default as uploadRouter } from './upload.js';
+import { messageRouter } from './messages.js';
 
 export {
     authRouter,
@@ -23,6 +24,7 @@ export {
     commentRouter,
     moderationRouter,
     federationRouter,
-    uploadRouter
+    uploadRouter,
+    messageRouter
 };
 export { default as recoveryRouter } from './recovery.js';

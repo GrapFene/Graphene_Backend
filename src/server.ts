@@ -15,6 +15,7 @@ import {
     federationRouter,
     recoveryRouter,
     uploadRouter,
+    messageRouter,
 } from './routes/index.js';
 import { startRetryWorker } from './services/retry.js';
 import { startPeerHealthMonitor } from './services/peer-health.js';
@@ -30,19 +31,23 @@ app.use(cors());
 app.use(express.json());
 
 // Routes
-app.use('/auth', authRouter);
-app.use('/posts', postRouter);
-app.use('/subscriptions', subscriptionRouter);
-app.use('/communities', communityRouter);
-app.use('/votes', voteRouter);
-app.use('/proposals', proposalRouter);
-app.use('/blocks', blockRouter);
-app.use('/profile', profileRouter);
-app.use('/comments', commentRouter);
-app.use('/moderation', moderationRouter);
-app.use('/federation', federationRouter);
-app.use('/recovery', recoveryRouter);
-app.use('/upload', uploadRouter);
+const apiRouter = express.Router();
+apiRouter.use('/auth', authRouter);
+apiRouter.use('/posts', postRouter);
+apiRouter.use('/subscriptions', subscriptionRouter);
+apiRouter.use('/communities', communityRouter);
+apiRouter.use('/votes', voteRouter);
+apiRouter.use('/proposals', proposalRouter);
+apiRouter.use('/blocks', blockRouter);
+apiRouter.use('/profile', profileRouter);
+apiRouter.use('/comments', commentRouter);
+apiRouter.use('/moderation', moderationRouter);
+apiRouter.use('/federation', federationRouter);
+apiRouter.use('/recovery', recoveryRouter);
+apiRouter.use('/upload', uploadRouter);
+apiRouter.use('/messages', messageRouter);
+
+app.use('/api', apiRouter);
 
 // Health check
 app.get('/health', (_, res) => {

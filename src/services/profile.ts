@@ -195,3 +195,40 @@ export async function getProfile(did: string): Promise<ApiResult<ProfileResponse
         }
     };
 }
+
+/**
+ * Search for users by username
+ */
+export async function searchUsers(query: string, limit = 10): Promise<ApiResult<{ users: { did: string, username: string, avatarUrl?: string }[] }>> {
+    if (!query || query.length < 2) {
+        return { success: true, data: { users: [] } };
+    }
+
+    const { data, error } = await getSupabase()
+        .from('identities')
+        .select(`
+            did,
+            username,
+            profile_metadata_hash
+        `)
+        .ilike('username', `%${query}%`)
+        .limit(limit);
+
+    if (error) {
+        return {
+            success: false,
+            error: { code: 'DB_ERROR', message: error.message }
+        };
+    }
+
+    // Optionally fetch avatars if we want to be fancy, but keep it simple for now
+    const users = (data || []).map(u => ({
+        did: u.did,
+        username: u.username
+    }));
+
+    return {
+        success: true,
+        data: { users }
+    };
+}

@@ -1,8 +1,25 @@
 import { Router, Request, Response } from 'express';
-import { updateProfile, getProfile } from '../services/profile.js';
+import { updateProfile, getProfile, searchUsers } from '../services/profile.js';
 import type { ProfileUpdateRequest } from '../types/index.js';
 
 const router = Router();
+
+/**
+ * GET /profile/search
+ * Search for users by username
+ */
+router.get('/search', async (req: Request, res: Response) => {
+    const query = req.query.q as string;
+    const limit = parseInt(req.query.limit as string || '10', 10);
+    
+    const result = await searchUsers(query, limit);
+
+    if (result.success) {
+        return res.status(200).json(result.data);
+    }
+
+    return res.status(400).json({ error: result.error });
+});
 
 /**
  * POST /profile
