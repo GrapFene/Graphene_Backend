@@ -84,7 +84,7 @@ export const config = {
                 .filter((e): e is [string, string] => e !== null)
         ),
         // Centralized WebSocket server URL
-        wsServerUrl: process.env.WS_SERVER_URL || 'ws://localhost:4000',
+        wsServerUrl: process.env.WS_SERVER_URL,
     }
 } as const;
 
