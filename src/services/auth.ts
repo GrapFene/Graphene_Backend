@@ -257,7 +257,7 @@ export async function getAuthCredentials(did: string): Promise<AuthCredential | 
  * Generate a DID from username (simple deterministic approach).
  */
 function generateDID(username: string): string {
-    const domain = config.federation.instanceDomain;
+    const domain = config.federation.instanceDomain || 'localhost';
     const cleanUsername = username.toLowerCase().replace(/[^a-z0-9]/g, '');
     return `did:graphene:${domain}:${cleanUsername}`;
 }

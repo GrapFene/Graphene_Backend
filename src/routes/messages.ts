@@ -46,7 +46,7 @@ router.get('/ws-ticket', authenticateToken, async (req: Request, res: Response) 
         const wsUrl = config.federation.wsServerUrl;
         const connectUrl = `${wsUrl}/?did=${encodeURIComponent(user.sub)}&t=${ticketTime}&signature=${signature}`;
 
-        console.log(`[messages/ws-ticket] ✅ Ticket signed. WS URL: ${wsUrl}`);
+        console.log(`[messages/ws-ticket] ✅ Ticket signed. WS URL: ${connectUrl}`);
         return res.json({ ticket: payload, signature, connectUrl });
     } catch (err) {
         console.error('[messages/ws-ticket] Sign failed:', err);
