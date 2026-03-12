@@ -101,6 +101,8 @@ jobs:
             cd "${{ secrets.VM_PROJECT_DIR }}"
 
             echo "GHCR_IMAGE=$IMAGE_TAG" > .env.deploy
+            echo "WS_SERVER_URL=wss://punier-bettie-straightly.ngrok-free.dev" >> .env.deploy
+            echo "CENTRAL_WS_SECRET=super-secret-central-key" >> .env.deploy
 
             docker compose \
               --env-file .env \

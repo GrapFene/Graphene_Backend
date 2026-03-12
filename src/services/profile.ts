@@ -221,7 +221,6 @@ export async function searchUsers(query: string, limit = 10): Promise<ApiResult<
         };
     }
 
-    // Optionally fetch avatars if we want to be fancy, but keep it simple for now
     const users = (data || []).map(u => ({
         did: u.did,
         username: u.username

@@ -56,6 +56,8 @@ app.use('/api', apiRouter);
 app.use(apiRouter); // Fallback: handle routes without /api prefix (for Caddy compatibility)
 
 // Serve Frontend Static Files
+// Assumes the frontend is built and located at ../../frontend/dist relative to this file's dist location
+// Or ../frontend/dist relative to the root during development with tsx
 const frontendPath = path.resolve(__dirname, '../../frontend/dist');
 app.use(express.static(frontendPath));
 
@@ -66,6 +68,7 @@ app.get('/health', (_, res) => {
 
 // Catch-all route for SPA (React Router)
 app.get('*', (req, res) => {
+    // Only handle if it's not an API call (API calls should have matched the /api router above)
     if (!req.path.startsWith('/api')) {
         res.sendFile(path.join(frontendPath, 'index.html'));
     } else {
